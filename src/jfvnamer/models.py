@@ -129,3 +129,42 @@ class TVDBMovieDetails(BaseModel):
     name: str
     year: Optional[str] = None
     runtime: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# Rename engine models
+# ---------------------------------------------------------------------------
+
+VIDEO_EXTENSIONS: frozenset[str] = frozenset(
+    {".mkv", ".avi", ".mp4", ".m4v", ".ts", ".wmv", ".flv", ".mov"}
+)
+
+SUBTITLE_EXTENSIONS: frozenset[str] = frozenset(
+    {".srt", ".sub", ".ass", ".ssa", ".idx"}
+)
+
+
+class RenameAction(BaseModel):
+    """A single planned rename/move/copy operation."""
+
+    source: str = Field(description="Absolute path to the source file")
+    destination: str = Field(description="Absolute path to the target file")
+    action: Literal["move", "copy", "dryrun"] = Field(description="Action to perform")
+    is_subtitle: bool = Field(default=False, description="Whether this is a companion subtitle file")
+
+
+class RenameResult(BaseModel):
+    """Outcome of executing a single rename action."""
+
+    source: str
+    destination: str
+    action: Literal["move", "copy", "dryrun"]
+    success: bool = True
+    error: Optional[str] = None
+
+
+class UndoLogEntry(BaseModel):
+    """A log of rename operations that can be reversed."""
+
+    timestamp: str = Field(description="ISO-format timestamp of the operation")
+    actions: list[RenameResult] = Field(default_factory=list)
