@@ -84,3 +84,48 @@ class AppConfig(BaseModel):
         We don't raise here — the CLI checks this before operations that need TVDB.
         """
         return self
+
+
+# ---------------------------------------------------------------------------
+# TVDB API models
+# ---------------------------------------------------------------------------
+
+
+class TVDBSearchResult(BaseModel):
+    """A single result from the TVDB /search endpoint."""
+
+    tvdb_id: int = Field(description="TVDB entity ID")
+    name: str = Field(description="Title of the series or movie")
+    type: str = Field(description="'series' or 'movie'")
+    year: Optional[str] = Field(default=None, description="Year of release/premiere")
+    overview: Optional[str] = Field(default=None, description="Short synopsis")
+
+
+class TVDBSeriesDetails(BaseModel):
+    """Details from /series/{id}/extended."""
+
+    tvdb_id: int
+    name: str
+    year: Optional[str] = None
+    status: Optional[str] = None
+    season_types: list[str] = Field(default_factory=list, description="Available ordering types")
+
+
+class TVDBEpisode(BaseModel):
+    """A single episode from TVDB."""
+
+    tvdb_id: int
+    name: Optional[str] = None
+    season_number: int
+    episode_number: int
+    aired: Optional[str] = None
+    overview: Optional[str] = None
+
+
+class TVDBMovieDetails(BaseModel):
+    """Details from /movies/{id}/extended."""
+
+    tvdb_id: int
+    name: str
+    year: Optional[str] = None
+    runtime: Optional[int] = None
