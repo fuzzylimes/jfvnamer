@@ -10,7 +10,8 @@
     "source=claude-code-config-shared,target=/home/vscode/.claude,type=volume"
   ],
   "remoteEnv": {
-    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
+    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin",
+    "VIRTUAL_ENV": "" // Avoid venv errors when running in devcontainer
   },
   "customizations": {
     "vscode": {
