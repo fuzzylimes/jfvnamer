@@ -92,5 +92,37 @@ def _print_parsed(parsed: "ParsedFile") -> None:  # noqa: F821
     typer.echo("")
 
 
+config_app = typer.Typer(help="Manage jfvnamer configuration.")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("init")
+def config_init(
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config file."),
+) -> None:
+    """Create a template config file at ~/.config/jfvnamer/config.toml."""
+    from jfvnamer.config import USER_CONFIG_DIR, USER_CONFIG_PATH, generate_user_config_template
+
+    if USER_CONFIG_PATH.exists() and not force:
+        typer.echo(f"Config file already exists: {USER_CONFIG_PATH}")
+        typer.echo("Use --force to overwrite.")
+        raise typer.Exit(1)
+
+    USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    USER_CONFIG_PATH.write_text(generate_user_config_template())
+    typer.echo(f"Config template written to {USER_CONFIG_PATH}")
+
+
+@config_app.command("show")
+def config_show(
+    config_file: Path = typer.Option(None, "--config", "-c", help="Path to user config file."),
+) -> None:
+    """Print the fully resolved configuration (all layers merged)."""
+    from jfvnamer.config import load_config
+
+    cfg = load_config(user_config_path=config_file)
+    typer.echo(json.dumps(cfg.model_dump(mode="json"), indent=2))
+
+
 if __name__ == "__main__":
     app()

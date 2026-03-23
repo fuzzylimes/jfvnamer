@@ -4,6 +4,8 @@
 
 Build a Python CLI tool called `jfvnamer` that renames and organizes TV show and movie files into the exact directory structure and naming conventions that Jellyfin expects. This is a spiritual successor to the abandoned `tvnamer` project (https://github.com/dbr/tvnamer), built from scratch but borrowing its battle-tested filename parsing regexes. While the original tvnamer was TV-only, this project also handles movies since TVDB indexes both, and Jellyfin has well-defined naming conventions for each.
 
+We are using the `uv` utility for managing the Python project.
+
 ---
 
 ## Phase 1: Project Scaffolding
@@ -97,107 +99,7 @@ These regexes handle an enormous variety of real-world filename formats. Example
 
 ---
 
-## Phase 3: TVDB v4 API Client (`tvdb.py`)
-
-Use the **official TVDB v4 API** (https://thetvdb.github.io/v4-api/). Do NOT use dbr's `tvdb_api` library.
-
-Reference the official Python client for API structure: https://github.com/thetvdb/tvdb-v4-python
-
-For context on how the original tvnamer handled TVDB lookups (useful to understand the search/disambiguation problem, not the API itself):
-- https://github.com/dbr/tvnamer/blob/master/tvnamer/utils.py (search for `tvdb_instance` and the series lookup flow)
-- The legacy API wrapper it depended on: https://github.com/dbr/tvdb_api/blob/master/tvdb_api.py (shows what data fields were used)
-
-### Auth flow:
-- User provides their TVDB API key in config (`tvdb.api_key`)
-- On first call, POST to `/login` with the API key to get a bearer token
-- Cache the token in `~/.cache/jfvnamer/tvdb_token.json` with expiry
-- Auto-refresh when expired
-
-### Required API operations:
-
-1. **Search**: `GET /search?query={name}`
-   - Do NOT pass `&type=series` by default — search across both series and movies so results include everything. The TVDB API returns a `type` field on each result (`"series"` or `"movie"`) which is used to label results in the disambiguation prompt and to branch the downstream logic.
-   - If the parser already determined `media_type="tv"`, you MAY add `&type=series` to narrow results. Likewise `&type=movie` if the parser said `"movie"`. If `"unknown"`, search without a type filter.
-   - Present results to user interactively for disambiguation (see Phase 7 for the UX)
-   - Cache ID mappings in `~/.cache/jfvnamer/search_cache.json` so repeated runs don't re-prompt
-
-2. **Get episodes** (TV only): `GET /series/{id}/episodes/{season-type}`
-   - This is where the **ordering type** matters. The `{season-type}` path parameter controls what numbering you get back. The common values are:
-     - `default` — aired order
-     - `dvd` — DVD order
-     - `absolute` — absolute numbering (anime)
-   - Expose this as a CLI flag: `--order aired|dvd|absolute` (default: `aired`)
-   - This directly solves pain point #1 from the original requirements
-   - Skip this entirely for movies — they have no episodes
-
-3. **Get series details**: `GET /series/{id}/extended` for year, status, aliases
-
-4. **Get movie details**: `GET /movies/{id}/extended` for year, runtime, aliases. The movie ID comes from the search results (different ID namespace from series).
-
-### Caching strategy:
-- Cache episode lists per series+order combo
-- Default TTL: 7 days (configurable)
-- `jfvnamer cache clear` command to wipe it
-
----
-
-## Phase 4: Jellyfin Naming Convention (`jellyfin.py`)
-
-Jellyfin's expected structures are documented here:
-- TV Shows: https://jellyfin.org/docs/general/server/media/shows
-- Movies: https://jellyfin.org/docs/general/server/media/movies
-
-### TV show target structure:
-
-```
-{library_root}/
-  {Series Name} ({Year})/
-    Season {XX}/
-      {Series Name} - S{XX}E{XX} - {Episode Title}.{ext}
-```
-
-### Movie target structure:
-
-```
-{library_root}/
-  {Movie Title} ({Year})/
-    {Movie Title} ({Year}).{ext}
-```
-
-Movies are simpler: one folder, one file, both with the same `Title (Year)` name. If the year is unavailable from TVDB, fall back to any year parsed from the filename, or omit the parenthetical entirely (same logic as TV series folders).
-
-### TV rules to implement:
-
-1. **Series folder**: Always `Series Name (Year)`. The year comes from TVDB. If TVDB doesn't have a year, fall back to any year parsed from the filename, or omit the parenthetical entirely.
-
-2. **Season folder**: Always `Season XX` with zero-padded two digits. **Critical**: If the parsed episode has no season number (e.g., absolute-numbered anime), default to `Season 01`. If the TVDB lookup returns a season number, use that instead. This directly solves pain point #2.
-
-3. **Episode file**: `Series Name - S01E01 - Episode Title.ext`
-   - Multi-episode: `Series Name - S01E01-E02 - Episode Title.ext`
-   - No episode title from TVDB: `Series Name - S01E01.ext` (omit the trailing dash-space)
-   - Specials: `Season 00/Series Name - S00E{XX} - Special Title.ext`
-
-4. **Date-based episodes**: Convert to the season+episode from TVDB lookup. If lookup fails, use `Season {year}/Series Name - {date}.ext` as fallback.
-
-5. **Sanitize filenames**: Remove characters invalid on common filesystems (`:`, `?`, `*`, `"`, `<`, `>`, `|`). Replace `:` with ` -`. Trim trailing dots and spaces (Windows issue).
-
-### Movie rules to implement:
-
-1. **Movie folder**: `Movie Title (Year)`. Year from TVDB, with the same fallback chain as TV series (parsed year → omit).
-
-2. **Movie file**: `Movie Title (Year).ext` — same name as the folder.
-
-3. **Extras / bonus features**: Out of scope for now. If a file is identified as a movie, just handle the main feature. This can be extended later.
-
-4. **Sanitization**: Same rules as TV — invalid characters stripped, colons replaced.
-
-### Shared logic:
-
-The `jellyfin.py` module should expose a single entry point like `build_target_path(parsed_file, tvdb_metadata)` that branches internally based on whether the TVDB result is a series or movie. The renamer shouldn't need to care about the distinction — it just gets a complete target path back.
-
----
-
-## Phase 5: Config System (`config.py`)
+## Phase 3: Config System (`config.py`)
 
 Use TOML. This directly addresses pain point #4.
 
@@ -258,6 +160,106 @@ strip_characters = ['?', '*', '"', '<', '>', '|']
 - On load, validate with Pydantic
 - If `tvdb.api_key` is empty and the user isn't running `--parse-only`, error with a helpful message explaining how to get one from https://thetvdb.com/api-information
 - If the user config file doesn't exist, `jfvnamer config init` should generate a commented template
+
+---
+
+## Phase 4: TVDB v4 API Client (`tvdb.py`)
+
+Use the **official TVDB v4 API** (https://thetvdb.github.io/v4-api/). Do NOT use dbr's `tvdb_api` library.
+
+Reference the official Python client for API structure: https://github.com/thetvdb/tvdb-v4-python
+
+For context on how the original tvnamer handled TVDB lookups (useful to understand the search/disambiguation problem, not the API itself):
+- https://github.com/dbr/tvnamer/blob/master/tvnamer/utils.py (search for `tvdb_instance` and the series lookup flow)
+- The legacy API wrapper it depended on: https://github.com/dbr/tvdb_api/blob/master/tvdb_api.py (shows what data fields were used)
+
+### Auth flow:
+- User provides their TVDB API key in config (`tvdb.api_key`)
+- On first call, POST to `/login` with the API key to get a bearer token
+- Cache the token in `~/.cache/jfvnamer/tvdb_token.json` with expiry
+- Auto-refresh when expired
+
+### Required API operations:
+
+1. **Search**: `GET /search?query={name}`
+   - Do NOT pass `&type=series` by default — search across both series and movies so results include everything. The TVDB API returns a `type` field on each result (`"series"` or `"movie"`) which is used to label results in the disambiguation prompt and to branch the downstream logic.
+   - If the parser already determined `media_type="tv"`, you MAY add `&type=series` to narrow results. Likewise `&type=movie` if the parser said `"movie"`. If `"unknown"`, search without a type filter.
+   - Present results to user interactively for disambiguation (see Phase 7 for the UX)
+   - Cache ID mappings in `~/.cache/jfvnamer/search_cache.json` so repeated runs don't re-prompt
+
+2. **Get episodes** (TV only): `GET /series/{id}/episodes/{season-type}`
+   - This is where the **ordering type** matters. The `{season-type}` path parameter controls what numbering you get back. The common values are:
+     - `default` — aired order
+     - `dvd` — DVD order
+     - `absolute` — absolute numbering (anime)
+   - Expose this as a CLI flag: `--order aired|dvd|absolute` (default: `aired`)
+   - This directly solves pain point #1 from the original requirements
+   - Skip this entirely for movies — they have no episodes
+
+3. **Get series details**: `GET /series/{id}/extended` for year, status, aliases
+
+4. **Get movie details**: `GET /movies/{id}/extended` for year, runtime, aliases. The movie ID comes from the search results (different ID namespace from series).
+
+### Caching strategy:
+- Cache episode lists per series+order combo
+- Default TTL: 7 days (configurable)
+- `jfvnamer cache clear` command to wipe it
+
+---
+
+## Phase 5: Jellyfin Naming Convention (`jellyfin.py`)
+
+Jellyfin's expected structures are documented here:
+- TV Shows: https://jellyfin.org/docs/general/server/media/shows
+- Movies: https://jellyfin.org/docs/general/server/media/movies
+
+### TV show target structure:
+
+```
+{library_root}/
+  {Series Name} ({Year})/
+    Season {XX}/
+      {Series Name} - S{XX}E{XX} - {Episode Title}.{ext}
+```
+
+### Movie target structure:
+
+```
+{library_root}/
+  {Movie Title} ({Year})/
+    {Movie Title} ({Year}).{ext}
+```
+
+Movies are simpler: one folder, one file, both with the same `Title (Year)` name. If the year is unavailable from TVDB, fall back to any year parsed from the filename, or omit the parenthetical entirely (same logic as TV series folders).
+
+### TV rules to implement:
+
+1. **Series folder**: Always `Series Name (Year)`. The year comes from TVDB. If TVDB doesn't have a year, fall back to any year parsed from the filename, or omit the parenthetical entirely.
+
+2. **Season folder**: Always `Season XX` with zero-padded two digits. **Critical**: If the parsed episode has no season number (e.g., absolute-numbered anime), default to `Season 01`. If the TVDB lookup returns a season number, use that instead. This directly solves pain point #2.
+
+3. **Episode file**: `Series Name - S01E01 - Episode Title.ext`
+   - Multi-episode: `Series Name - S01E01-E02 - Episode Title.ext`
+   - No episode title from TVDB: `Series Name - S01E01.ext` (omit the trailing dash-space)
+   - Specials: `Season 00/Series Name - S00E{XX} - Special Title.ext`
+
+4. **Date-based episodes**: Convert to the season+episode from TVDB lookup. If lookup fails, use `Season {year}/Series Name - {date}.ext` as fallback.
+
+5. **Sanitize filenames**: Remove characters invalid on common filesystems (`:`, `?`, `*`, `"`, `<`, `>`, `|`). Replace `:` with ` -`. Trim trailing dots and spaces (Windows issue).
+
+### Movie rules to implement:
+
+1. **Movie folder**: `Movie Title (Year)`. Year from TVDB, with the same fallback chain as TV series (parsed year → omit).
+
+2. **Movie file**: `Movie Title (Year).ext` — same name as the folder.
+
+3. **Extras / bonus features**: Out of scope for now. If a file is identified as a movie, just handle the main feature. This can be extended later.
+
+4. **Sanitization**: Same rules as TV — invalid characters stripped, colons replaced.
+
+### Shared logic:
+
+The `jellyfin.py` module should expose a single entry point like `build_target_path(parsed_file, tvdb_metadata)` that branches internally based on whether the TVDB result is a series or movie. The renamer shouldn't need to care about the distinction — it just gets a complete target path back.
 
 ---
 
