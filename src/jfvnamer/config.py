@@ -26,7 +26,8 @@ from jfvnamer.models import AppConfig
 # Paths
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "default.toml"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve(
+).parent.parent.parent / "config" / "default.toml"
 USER_CONFIG_DIR = Path.home() / ".config" / "jfvnamer"
 USER_CONFIG_PATH = USER_CONFIG_DIR / "config.toml"
 

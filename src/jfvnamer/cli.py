@@ -8,6 +8,8 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from jfvnamer.models import ParsedFile, TVDBEpisode, TVDBSeriesDetails
+from jfvnamer.tvdb import TVDBClient
 import typer
 
 app = typer.Typer(
@@ -15,7 +17,8 @@ app = typer.Typer(
     help="Rename and organize TV show and movie files for Jellyfin.",
 )
 
-VIDEO_EXTENSIONS = {".mkv", ".avi", ".mp4", ".m4v", ".ts", ".wmv", ".flv", ".mov"}
+VIDEO_EXTENSIONS = {".mkv", ".avi", ".mp4",
+                    ".m4v", ".ts", ".wmv", ".flv", ".mov"}
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +31,8 @@ logger = logging.getLogger(__name__)
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    version: bool = typer.Option(False, "--version", "-V", help="Show version and exit."),
+    version: bool = typer.Option(
+        False, "--version", "-V", help="Show version and exit."),
 ) -> None:
     if version:
         from jfvnamer import __version__
@@ -47,8 +51,10 @@ def main(
 @app.command()
 def parse(
     path: Path = typer.Argument(..., help="File or directory to parse."),
-    as_json: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
-    recursive: bool = typer.Option(True, "--recursive/--no-recursive", "-r/-R", help="Scan subdirectories."),
+    as_json: bool = typer.Option(
+        False, "--json", "-j", help="Output as JSON."),
+    recursive: bool = typer.Option(
+        True, "--recursive/--no-recursive", "-r/-R", help="Scan subdirectories."),
 ) -> None:
     """Parse filenames and show extracted metadata (no TVDB lookup)."""
     from jfvnamer.parser import parse_filename
@@ -140,14 +146,14 @@ def rename(
     skip_existing: bool = typer.Option(
         False, "--skip-existing", help="Silently skip files whose target already exists."
     ),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Detailed output."),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Detailed output."),
     config_file: Optional[Path] = typer.Option(
         None, "--config", "-c", help="Path to user config file."
     ),
 ) -> None:
     """Main rename workflow: parse, look up TVDB, and rename/move/copy files."""
     from jfvnamer.config import load_config, validate_api_key
-    from jfvnamer.models import ParsedFile
     from jfvnamer.renamer import process_files
     from jfvnamer.tvdb import TVDBClient
 
@@ -156,15 +162,18 @@ def rename(
     if action:
         cli_overrides.setdefault("general", {})["action"] = action
     if series_root:
-        cli_overrides.setdefault("general", {})["series_root"] = str(series_root)
+        cli_overrides.setdefault("general", {})[
+            "series_root"] = str(series_root)
     if movies_root:
-        cli_overrides.setdefault("general", {})["movies_root"] = str(movies_root)
+        cli_overrides.setdefault("general", {})[
+            "movies_root"] = str(movies_root)
     if verbose:
         cli_overrides.setdefault("general", {})["verbose"] = True
     if order:
         cli_overrides.setdefault("tvdb", {})["default_order"] = order
 
-    config = load_config(user_config_path=config_file, cli_overrides=cli_overrides or None)
+    config = load_config(user_config_path=config_file,
+                         cli_overrides=cli_overrides or None)
 
     # Set up logging
     _setup_logging(config.general.verbose)
@@ -232,7 +241,8 @@ def rename(
 
 @app.command()
 def search(
-    query: str = typer.Argument(..., help="Search query (series or movie name)."),
+    query: str = typer.Argument(...,
+                                help="Search query (series or movie name)."),
     media_type: Optional[str] = typer.Option(
         None, "--type", "-t", help="Filter by type: series or movie."
     ),
@@ -266,7 +276,8 @@ def search(
     for i, r in enumerate(results, 1):
         label = f"[{r.type.capitalize()}]"
         year_str = f" ({r.year})" if r.year else ""
-        typer.echo(f"  {i:>2}. {label:<10} {r.name}{year_str} — TVDB ID: {r.tvdb_id}")
+        typer.echo(
+            f"  {i:>2}. {label:<10} {r.name}{year_str} — TVDB ID: {r.tvdb_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +343,8 @@ app.add_typer(config_app, name="config")
 
 @config_app.command("init")
 def config_init(
-    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config file."),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Overwrite existing config file."),
 ) -> None:
     """Create a template config file at ~/.config/jfvnamer/config.toml."""
     from jfvnamer.config import USER_CONFIG_DIR, USER_CONFIG_PATH, generate_user_config_template
@@ -349,7 +361,8 @@ def config_init(
 
 @config_app.command("show")
 def config_show(
-    config_file: Path = typer.Option(None, "--config", "-c", help="Path to user config file."),
+    config_file: Path = typer.Option(
+        None, "--config", "-c", help="Path to user config file."),
 ) -> None:
     """Print the fully resolved configuration (all layers merged)."""
     from jfvnamer.config import load_config
@@ -363,7 +376,8 @@ def config_show(
 # ---------------------------------------------------------------------------
 
 # Regex for DVD/Blu-ray source keywords in filenames
-_DVD_SOURCE_RE = re.compile(r"\b(dvd|dvdrip|bd|bdrip|bluray|blu[\-\.]?ray)\b", re.IGNORECASE)
+_DVD_SOURCE_RE = re.compile(
+    r"\b(dvd|dvdrip|bd|bdrip|bluray|blu[\-\.]?ray)\b", re.IGNORECASE)
 
 
 def _prompt_disambiguation(
@@ -376,8 +390,6 @@ def _prompt_disambiguation(
 
     Returns (tvdb_id, type) or None if the user chose to skip.
     """
-    from jfvnamer.models import TVDBSearchResult
-
     if not results:
         typer.echo(f'No matches found for "{title}".')
         return None
@@ -385,20 +397,23 @@ def _prompt_disambiguation(
     if len(results) == 1 and not no_prompt:
         r = results[0]
         year_str = f" ({r.year})" if r.year else ""
-        typer.echo(f'Auto-selected: [{r.type.capitalize()}] {r.name}{year_str} — TVDB ID: {r.tvdb_id}')
+        typer.echo(
+            f'Auto-selected: [{r.type.capitalize()}] {r.name}{year_str} — TVDB ID: {r.tvdb_id}')
         return (r.tvdb_id, r.type)
 
     if no_prompt:
         # In non-interactive mode, auto-select the first result
         r = results[0]
-        logger.info('Auto-selected first result for "%s": %s (ID: %d)', title, r.name, r.tvdb_id)
+        logger.info('Auto-selected first result for "%s": %s (ID: %d)',
+                    title, r.name, r.tvdb_id)
         return (r.tvdb_id, r.type)
 
     typer.echo(f'\nMultiple matches found for "{title}":')
     for i, r in enumerate(results, 1):
         label = f"[{r.type.capitalize()}]"
         year_str = f" ({r.year})" if r.year else ""
-        typer.echo(f"  {i}. {label:<10} {r.name}{year_str} — TVDB ID: {r.tvdb_id}")
+        typer.echo(
+            f"  {i}. {label:<10} {r.name}{year_str} — TVDB ID: {r.tvdb_id}")
     typer.echo("")
 
     while True:
@@ -470,11 +485,11 @@ def _prompt_ordering(
     reverse_map = {v: k for k, v in ORDER_MAP.items()}
 
     # Filter to types that exist for this series
-    choices: list[tuple[str, str]] = []  # (user_name, tvdb_type)
+    choices: list[tuple[str, str]] = []  # (season_type, tvdb_type)
     for tvdb_type in available_types:
-        user_name = reverse_map.get(tvdb_type)
-        if user_name:
-            choices.append((user_name, tvdb_type))
+        season_type = reverse_map.get(tvdb_type)
+        if season_type:
+            choices.append((season_type, tvdb_type))
 
     if not choices:
         # Fallback to aired
@@ -485,24 +500,22 @@ def _prompt_ordering(
 
     # Auto-select DVD if filename indicates it
     if auto_dvd:
-        for user_name, tvdb_type in choices:
-            if user_name == "dvd":
+        for season_type, tvdb_type in choices:
+            if season_type == "dvd":
                 typer.echo(
-                    f"Auto-selected DVD ordering based on filename. "
-                    f"Override with --order aired"
+                    "Auto-selected DVD ordering based on filename. "
+                    "Override with --order aired"
                 )
                 return "dvd"
 
     typer.echo(f'\nEpisode ordering for "{series_name}":')
-    for i, (user_name, tvdb_type) in enumerate(choices, 1):
+    for i, (season_type, tvdb_type) in enumerate(choices, 1):
         info = episodes_by_type.get(tvdb_type, {})
         seasons = info.get("seasons", "?")
         episodes = info.get("episodes", "?")
-        label = user_name.capitalize() + " Order"
-        if user_name == "absolute":
-            typer.echo(f"  {i}. {label} ({episodes} episodes)")
-        else:
-            typer.echo(f"  {i}. {label} ({seasons} seasons, {episodes} episodes)")
+        label = season_type.capitalize() + " Order"
+        typer.echo(
+            f"  {i}. {label} ({seasons} seasons, {episodes} episodes)")
 
     typer.echo("")
     while True:
@@ -534,11 +547,11 @@ def _count_episodes_by_type(
     result: dict[str, dict] = {}
 
     for tvdb_type in season_types:
-        user_name = reverse_map.get(tvdb_type)
-        if not user_name:
+        season_type = reverse_map.get(tvdb_type)
+        if not season_type:
             continue
         try:
-            episodes = client.get_episodes(series_id, order=user_name)
+            episodes = client.get_episodes(series_id, order=season_type)
             seasons = set()
             for ep in episodes:
                 seasons.add(ep.season_number)
@@ -576,7 +589,7 @@ def _resolve_tvdb(
 
     Returns a tuple of (type, metadata, episode_or_none) or None to skip.
     """
-    from jfvnamer.models import MediaType, TVDBEpisode
+    from jfvnamer.models import MediaType
 
     if series_details_cache is None:
         series_details_cache = {}
@@ -620,7 +633,8 @@ def _resolve_tvdb(
             search_type = "movie"
 
         results = client.search(parsed.title, media_type=search_type)
-        selection = _prompt_disambiguation(parsed.title, results, no_prompt=no_prompt)
+        selection = _prompt_disambiguation(
+            parsed.title, results, no_prompt=no_prompt)
         if selection is None:
             return None
 
@@ -686,7 +700,8 @@ def _select_ordering(
         return default_order
 
     # Fetch episode counts for the ordering prompt
-    counts = _count_episodes_by_type(client, series.tvdb_id, series.season_types)
+    counts = _count_episodes_by_type(
+        client, series.tvdb_id, series.season_types)
 
     return _prompt_ordering(
         series.name,
@@ -705,7 +720,6 @@ def _match_episode(
     forced_season: int | None,
 ) -> "TVDBEpisode | None":
     """Find the matching TVDB episode for the parsed file info."""
-    from jfvnamer.models import TVDBEpisode
 
     episodes = client.get_episodes(series_id, order=order)
 

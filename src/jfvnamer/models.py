@@ -20,15 +20,22 @@ class ParsedFile(BaseModel):
 
     title: str = Field(description="Cleaned series or movie name")
     media_type: MediaType = Field(description="Detected media type")
-    season_number: Optional[int] = Field(default=None, description="Season number if detected")
-    episode_numbers: Optional[list[int]] = Field(default=None, description="Episode number(s)")
-    episode_name: Optional[str] = Field(default=None, description="Episode title if present")
+    season_number: Optional[int] = Field(
+        default=None, description="Season number if detected")
+    episode_numbers: Optional[list[int]] = Field(
+        default=None, description="Episode number(s)")
+    episode_name: Optional[str] = Field(
+        default=None, description="Episode title if present")
     year: Optional[int] = Field(default=None, description="Year if detected")
-    date: Optional[datetime.date] = Field(default=None, description="Air date for date-based episodes")
-    quality: Optional[str] = Field(default=None, description="Quality tag (720p, 1080p, etc.)")
-    source: Optional[str] = Field(default=None, description="Source tag (bluray, hdtv, etc.)")
+    date: Optional[datetime.date] = Field(
+        default=None, description="Air date for date-based episodes")
+    quality: Optional[str] = Field(
+        default=None, description="Quality tag (720p, 1080p, etc.)")
+    source: Optional[str] = Field(
+        default=None, description="Source tag (bluray, hdtv, etc.)")
     file_extension: str = Field(description="File extension including dot")
-    original_filename: str = Field(description="The original filename before parsing")
+    original_filename: str = Field(
+        description="The original filename before parsing")
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +68,8 @@ class NamingConfig(BaseModel):
     movie_folder_format: str = "{title} ({year})"
     movie_file_format: str = "{title} ({year})"
     replace_colon_with: str = " -"
-    strip_characters: list[str] = Field(default_factory=lambda: ["?", "*", '"', "<", ">", "|"])
+    strip_characters: list[str] = Field(
+        default_factory=lambda: ["?", "*", '"', "<", ">", "|"])
 
 
 class PatternsConfig(BaseModel):
@@ -98,7 +106,8 @@ class TVDBSearchResult(BaseModel):
     tvdb_id: int = Field(description="TVDB entity ID")
     name: str = Field(description="Title of the series or movie")
     type: str = Field(description="'series' or 'movie'")
-    year: Optional[str] = Field(default=None, description="Year of release/premiere")
+    year: Optional[str] = Field(
+        default=None, description="Year of release/premiere")
     overview: Optional[str] = Field(default=None, description="Short synopsis")
 
 
@@ -109,7 +118,8 @@ class TVDBSeriesDetails(BaseModel):
     name: str
     year: Optional[str] = None
     status: Optional[str] = None
-    season_types: list[str] = Field(default_factory=list, description="Available ordering types")
+    season_types: list[str] = Field(
+        default_factory=list, description="Available ordering types")
 
 
 class TVDBEpisode(BaseModel):
@@ -150,8 +160,10 @@ class RenameAction(BaseModel):
 
     source: str = Field(description="Absolute path to the source file")
     destination: str = Field(description="Absolute path to the target file")
-    action: Literal["move", "copy", "dryrun"] = Field(description="Action to perform")
-    is_subtitle: bool = Field(default=False, description="Whether this is a companion subtitle file")
+    action: Literal["move", "copy", "dryrun"] = Field(
+        description="Action to perform")
+    is_subtitle: bool = Field(
+        default=False, description="Whether this is a companion subtitle file")
 
 
 class RenameResult(BaseModel):

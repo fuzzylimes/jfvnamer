@@ -64,19 +64,26 @@ def parsed_movie() -> ParsedFile:
 @pytest.fixture()
 def search_results() -> list[TVDBSearchResult]:
     return [
-        TVDBSearchResult(tvdb_id=77551, name="The Batman", type="series", year="2004"),
-        TVDBSearchResult(tvdb_id=331482, name="The Batman", type="movie", year="2022"),
-        TVDBSearchResult(tvdb_id=77871, name="Batman", type="series", year="1966"),
+        TVDBSearchResult(tvdb_id=77551, name="The Batman",
+                         type="series", year="2004"),
+        TVDBSearchResult(tvdb_id=331482, name="The Batman",
+                         type="movie", year="2022"),
+        TVDBSearchResult(tvdb_id=77871, name="Batman",
+                         type="series", year="1966"),
     ]
 
 
 @pytest.fixture()
 def sample_episodes() -> list[TVDBEpisode]:
     return [
-        TVDBEpisode(tvdb_id=1, name="Pilot", season_number=1, episode_number=1, aired="2008-01-20"),
-        TVDBEpisode(tvdb_id=2, name="Cat's in the Bag...", season_number=1, episode_number=2, aired="2008-01-27"),
-        TVDBEpisode(tvdb_id=3, name="...And the Bag's in the River", season_number=1, episode_number=3),
-        TVDBEpisode(tvdb_id=4, name="Special", season_number=0, episode_number=1),
+        TVDBEpisode(tvdb_id=1, name="Pilot", season_number=1,
+                    episode_number=1, aired="2008-01-20"),
+        TVDBEpisode(tvdb_id=2, name="Cat's in the Bag...",
+                    season_number=1, episode_number=2, aired="2008-01-27"),
+        TVDBEpisode(tvdb_id=3, name="...And the Bag's in the River",
+                    season_number=1, episode_number=3),
+        TVDBEpisode(tvdb_id=4, name="Special",
+                    season_number=0, episode_number=1),
     ]
 
 
@@ -135,7 +142,8 @@ class TestSearchCommand:
 
         mock_client = MagicMock()
         mock_client.search.return_value = [
-            TVDBSearchResult(tvdb_id=81189, name="Breaking Bad", type="series", year="2008"),
+            TVDBSearchResult(tvdb_id=81189, name="Breaking Bad",
+                             type="series", year="2008"),
         ]
         mock_client_cls.return_value = mock_client
 
@@ -211,7 +219,8 @@ class TestUndoCommand:
                 ),
             ],
         )
-        log_path.write_text(json.dumps(entry.model_dump(mode="json"), indent=2))
+        log_path.write_text(json.dumps(
+            entry.model_dump(mode="json"), indent=2))
 
         result = runner.invoke(app, ["undo", str(log_path)])
         assert result.exit_code == 0
@@ -250,7 +259,8 @@ class TestPromptDisambiguation:
         assert result is None
 
     def test_no_prompt_picks_first(self, search_results: list[TVDBSearchResult]) -> None:
-        result = _prompt_disambiguation("The Batman", search_results, no_prompt=True)
+        result = _prompt_disambiguation(
+            "The Batman", search_results, no_prompt=True)
         assert result == (77551, "series")
 
     def test_user_selects_number(self, search_results: list[TVDBSearchResult]) -> None:
@@ -308,7 +318,8 @@ class TestPromptOrdering:
         result = _prompt_ordering(
             "Show",
             ["default", "dvd"],
-            {"default": {"seasons": 5, "episodes": 50}, "dvd": {"seasons": 5, "episodes": 50}},
+            {"default": {"seasons": 5, "episodes": 50},
+                "dvd": {"seasons": 5, "episodes": 50}},
             auto_dvd=True,
         )
         assert result == "dvd"
@@ -349,7 +360,8 @@ class TestMatchEpisode:
     def test_match_by_season_episode(self, parsed_tv: ParsedFile, sample_episodes: list[TVDBEpisode]) -> None:
         client = MagicMock()
         client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed_tv, client, 81189, order="aired", forced_season=None)
+        ep = _match_episode(parsed_tv, client, 81189,
+                            order="aired", forced_season=None)
         assert ep is not None
         assert ep.name == "Pilot"
         assert ep.season_number == 1
@@ -367,7 +379,8 @@ class TestMatchEpisode:
         )
         client = MagicMock()
         client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed, client, 81189, order="aired", forced_season=None)
+        ep = _match_episode(parsed, client, 81189,
+                            order="aired", forced_season=None)
         assert ep is not None
         assert ep.name == "Pilot"
 
@@ -382,7 +395,8 @@ class TestMatchEpisode:
         )
         client = MagicMock()
         client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed, client, 81189, order="aired", forced_season=None)
+        ep = _match_episode(parsed, client, 81189,
+                            order="aired", forced_season=None)
         assert ep is None
 
     def test_forced_season_overrides(self, sample_episodes: list[TVDBEpisode]) -> None:
@@ -396,7 +410,8 @@ class TestMatchEpisode:
         )
         client = MagicMock()
         client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed, client, 81189, order="aired", forced_season=1)
+        ep = _match_episode(parsed, client, 81189,
+                            order="aired", forced_season=1)
         assert ep is not None
         assert ep.name == "Pilot"
 
@@ -411,7 +426,8 @@ class TestMatchEpisode:
         )
         client = MagicMock()
         client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed, client, 1, order="absolute", forced_season=None)
+        ep = _match_episode(parsed, client, 1,
+                            order="absolute", forced_season=None)
         assert ep is not None
         assert ep.episode_number == 1
 
@@ -505,7 +521,7 @@ class TestSelectOrdering:
 class TestRenameCommand:
     def test_rename_nonexistent_path(self) -> None:
         with patch("jfvnamer.config.load_config") as mock_config, \
-             patch("jfvnamer.config.validate_api_key"):
+                patch("jfvnamer.config.validate_api_key"):
             mock_config.return_value = AppConfig(tvdb={"api_key": "key"})
             result = runner.invoke(app, ["rename", "/does/not/exist"])
         assert result.exit_code == 1
@@ -517,8 +533,8 @@ class TestRenameCommand:
         output.mkdir()
 
         with patch("jfvnamer.config.load_config") as mock_config, \
-             patch("jfvnamer.config.validate_api_key"), \
-             patch("jfvnamer.tvdb.TVDBClient") as mock_client_cls:
+                patch("jfvnamer.config.validate_api_key"), \
+                patch("jfvnamer.tvdb.TVDBClient") as mock_client_cls:
 
             mock_config.return_value = AppConfig.model_validate({
                 "general": {"series_root": str(output), "movies_root": str(output), "action": "dryrun"},
@@ -534,7 +550,8 @@ class TestRenameCommand:
                 tvdb_id=81189, name="Breaking Bad", year="2008", season_types=["default"],
             )
             mock_client.get_episodes.return_value = [
-                TVDBEpisode(tvdb_id=1, name="Pilot", season_number=1, episode_number=1),
+                TVDBEpisode(tvdb_id=1, name="Pilot",
+                            season_number=1, episode_number=1),
             ]
 
             result = runner.invoke(app, ["rename", str(video)])
@@ -549,8 +566,8 @@ class TestRenameCommand:
         output.mkdir()
 
         with patch("jfvnamer.config.load_config") as mock_config, \
-             patch("jfvnamer.config.validate_api_key"), \
-             patch("jfvnamer.tvdb.TVDBClient") as mock_client_cls:
+                patch("jfvnamer.config.validate_api_key"), \
+                patch("jfvnamer.tvdb.TVDBClient") as mock_client_cls:
 
             mock_config.return_value = AppConfig.model_validate({
                 "general": {"series_root": str(output), "movies_root": str(output), "action": "dryrun"},
@@ -563,7 +580,8 @@ class TestRenameCommand:
                 tvdb_id=1000, name="Inception", year="2010",
             )
 
-            result = runner.invoke(app, ["rename", str(video), "--movie-id", "1000"])
+            result = runner.invoke(
+                app, ["rename", str(video), "--movie-id", "1000"])
 
         assert result.exit_code == 0
 

@@ -61,12 +61,14 @@ class TestMergePatterns:
     def test_prepend(self) -> None:
         defaults = ["pat1", "pat2"]
         section = {"patterns_prepend": ["custom1"]}
-        assert _merge_patterns(defaults, section) == ["custom1", "pat1", "pat2"]
+        assert _merge_patterns(defaults, section) == [
+            "custom1", "pat1", "pat2"]
 
     def test_append(self) -> None:
         defaults = ["pat1", "pat2"]
         section = {"patterns_append": ["custom1"]}
-        assert _merge_patterns(defaults, section) == ["pat1", "pat2", "custom1"]
+        assert _merge_patterns(defaults, section) == [
+            "pat1", "pat2", "custom1"]
 
     def test_prepend_and_append(self) -> None:
         defaults = ["pat1"]

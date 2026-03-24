@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -91,19 +91,22 @@ class TVDBClient:
             if data.get("expiry", 0) > time.time():
                 self._token = data["token"]
                 self._token_expiry = data["expiry"]
-                logger.debug("Loaded cached TVDB token (expires %.0fs from now)", data["expiry"] - time.time())
+                logger.debug(
+                    "Loaded cached TVDB token (expires %.0fs from now)", data["expiry"] - time.time())
         except (json.JSONDecodeError, KeyError):
             logger.debug("Ignoring invalid cached token file")
 
     def _save_token(self) -> None:
         """Persist the current token to disk."""
-        TOKEN_PATH.write_text(json.dumps({"token": self._token, "expiry": self._token_expiry}))
+        TOKEN_PATH.write_text(json.dumps(
+            {"token": self._token, "expiry": self._token_expiry}))
 
     def authenticate(self) -> None:
         """POST to /login to obtain a bearer token."""
         resp = self._http.post("/login", json={"apikey": self._api_key})
         if resp.status_code != 200:
-            raise TVDBAuthError(f"TVDB login failed (HTTP {resp.status_code}): {resp.text}")
+            raise TVDBAuthError(
+                f"TVDB login failed (HTTP {resp.status_code}): {resp.text}")
 
         body = resp.json()
         token = body.get("data", {}).get("token")
@@ -139,7 +142,8 @@ class TVDBClient:
             self.authenticate()
             resp = self._http.get(path, headers=self._headers(), params=params)
         if resp.status_code != 200:
-            raise TVDBApiError(f"TVDB API error (HTTP {resp.status_code}) on {path}: {resp.text}")
+            raise TVDBApiError(
+                f"TVDB API error (HTTP {resp.status_code}) on {path}: {resp.text}")
         return resp.json()
 
     # ------------------------------------------------------------------
@@ -172,10 +176,11 @@ class TVDBClient:
             tvdb_id = item.get("tvdb_id") or item.get("id")
             if tvdb_id is None:
                 continue
+            language_title = item.get("translations", {}).get(self._language)
             results.append(
                 TVDBSearchResult(
                     tvdb_id=int(tvdb_id),
-                    name=item.get("name", item.get("translations", {}).get("eng", "Unknown")),
+                    name=language_title or item.get("name", "Unknown"),
                     type=item.get("type", "unknown"),
                     year=item.get("year"),
                     overview=item.get("overview"),
@@ -189,7 +194,7 @@ class TVDBClient:
 
     def get_series_details(self, series_id: int) -> TVDBSeriesDetails:
         """Fetch extended details for a series."""
-        body = self._get(f"/series/{series_id}/extended")
+        body = self._get(f"/series/{series_id}/extended?short=true")
         data = body.get("data", {})
 
         season_types: list[str] = []
@@ -202,7 +207,8 @@ class TVDBClient:
             tvdb_id=series_id,
             name=data.get("name", "Unknown"),
             year=data.get("year"),
-            status=data.get("status", {}).get("name") if isinstance(data.get("status"), dict) else data.get("status"),
+            status=data.get("status", {}).get("name") if isinstance(
+                data.get("status"), dict) else data.get("status"),
             season_types=season_types,
         )
 
@@ -224,7 +230,8 @@ class TVDBClient:
         # Check cache first
         cached = self._load_episode_cache(series_id, order)
         if cached is not None:
-            logger.debug("Using cached episodes for series %d (%s)", series_id, order)
+            logger.debug(
+                "Using cached episodes for series %d (%s)", series_id, order)
             return cached
 
         season_type = ORDER_MAP.get(order, "default")
@@ -233,7 +240,7 @@ class TVDBClient:
 
         while True:
             body = self._get(
-                f"/series/{series_id}/episodes/{season_type}",
+                f"/series/{series_id}/episodes/{season_type}/{self._language}",
                 params={"page": str(page)},
             )
             data = body.get("data", {})
@@ -266,7 +273,7 @@ class TVDBClient:
 
     def get_movie_details(self, movie_id: int) -> TVDBMovieDetails:
         """Fetch extended details for a movie."""
-        body = self._get(f"/movies/{movie_id}/extended")
+        body = self._get(f"/movies/{movie_id}/extended?short=true")
         data = body.get("data", {})
         return TVDBMovieDetails(
             tvdb_id=movie_id,
@@ -341,7 +348,8 @@ class TVDBClient:
 
     def _save_episode_cache(self, series_id: int, order: str, episodes: list[TVDBEpisode]) -> None:
         try:
-            cache = json.loads(EPISODE_CACHE_PATH.read_text()) if EPISODE_CACHE_PATH.exists() else {}
+            cache = json.loads(EPISODE_CACHE_PATH.read_text()
+                               ) if EPISODE_CACHE_PATH.exists() else {}
         except (json.JSONDecodeError, OSError):
             cache = {}
         key = self._episode_cache_key(series_id, order)

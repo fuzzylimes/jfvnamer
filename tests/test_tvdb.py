@@ -35,9 +35,12 @@ def _mock_response(status_code: int = 200, json_data: dict | None = None, text: 
 def tmp_cache(tmp_path, monkeypatch):
     """Redirect all cache paths to a temp directory."""
     monkeypatch.setattr("jfvnamer.tvdb.CACHE_DIR", tmp_path)
-    monkeypatch.setattr("jfvnamer.tvdb.TOKEN_PATH", tmp_path / "tvdb_token.json")
-    monkeypatch.setattr("jfvnamer.tvdb.SEARCH_CACHE_PATH", tmp_path / "search_cache.json")
-    monkeypatch.setattr("jfvnamer.tvdb.EPISODE_CACHE_PATH", tmp_path / "episode_cache.json")
+    monkeypatch.setattr("jfvnamer.tvdb.TOKEN_PATH",
+                        tmp_path / "tvdb_token.json")
+    monkeypatch.setattr("jfvnamer.tvdb.SEARCH_CACHE_PATH",
+                        tmp_path / "search_cache.json")
+    monkeypatch.setattr("jfvnamer.tvdb.EPISODE_CACHE_PATH",
+                        tmp_path / "episode_cache.json")
     return tmp_path
 
 
@@ -86,13 +89,15 @@ class TestAuth:
 
     def test_load_cached_token(self, tmp_cache):
         token_path = tmp_cache / "tvdb_token.json"
-        token_path.write_text(json.dumps({"token": "cached-tok", "expiry": time.time() + 9999}))
+        token_path.write_text(json.dumps(
+            {"token": "cached-tok", "expiry": time.time() + 9999}))
         c = TVDBClient(api_key="key")
         assert c._token == "cached-tok"
 
     def test_expired_cached_token_ignored(self, tmp_cache):
         token_path = tmp_cache / "tvdb_token.json"
-        token_path.write_text(json.dumps({"token": "old-tok", "expiry": time.time() - 1}))
+        token_path.write_text(json.dumps(
+            {"token": "old-tok", "expiry": time.time() - 1}))
         c = TVDBClient(api_key="key")
         assert c._token is None
 
@@ -201,8 +206,10 @@ class TestSeries:
         api_data = {
             "data": {
                 "episodes": [
-                    {"id": 1, "name": "Pilot", "seasonNumber": 1, "number": 1, "aired": "2008-01-20"},
-                    {"id": 2, "name": "Cat's in the Bag...", "seasonNumber": 1, "number": 2, "aired": "2008-01-27"},
+                    {"id": 1, "name": "Pilot", "seasonNumber": 1,
+                        "number": 1, "aired": "2008-01-20"},
+                    {"id": 2, "name": "Cat's in the Bag...",
+                        "seasonNumber": 1, "number": 2, "aired": "2008-01-27"},
                 ]
             },
             "links": {"next": None},
@@ -290,7 +297,8 @@ class TestMovie:
 
 class TestSearchCache:
     def test_cache_and_retrieve(self, client):
-        client.cache_search_result("breaking bad", tvdb_id=81189, result_type="series", name="Breaking Bad")
+        client.cache_search_result(
+            "breaking bad", tvdb_id=81189, result_type="series", name="Breaking Bad")
         cached = client.get_cached_search("Breaking Bad")
         assert cached is not None
         assert cached["tvdb_id"] == 81189
@@ -300,7 +308,8 @@ class TestSearchCache:
         assert client.get_cached_search("nonexistent") is None
 
     def test_cache_expired(self, client):
-        client.cache_search_result("old show", tvdb_id=1, result_type="series", name="Old Show")
+        client.cache_search_result(
+            "old show", tvdb_id=1, result_type="series", name="Old Show")
         # Manually expire the entry
         cache = client.load_search_cache()
         cache["old show"]["cached_at"] = time.time() - client._cache_ttl - 1
