@@ -120,7 +120,9 @@ class TestParseCommand:
 
 
 class TestSearchCommand:
-    def test_search_no_api_key(self) -> None:
+    @patch("jfvnamer.config.load_config")
+    def test_search_no_api_key(self, mock_load) -> None:
+        mock_load.return_value = AppConfig()
         result = runner.invoke(app, ["search", "Breaking Bad"])
         assert result.exit_code != 0
 

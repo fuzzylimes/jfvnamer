@@ -182,6 +182,11 @@ def rename(
         language=config.tvdb.language,
     )
 
+    # Per-session caches to avoid redundant API calls and repeated prompts
+    # when processing multiple files from the same series.
+    series_details_cache: dict[int, "TVDBSeriesDetails"] = {}
+    ordering_cache: dict[int, str] = {}
+
     # Build the resolver callback
     def resolver(parsed: ParsedFile):
         return _resolve_tvdb(
@@ -193,6 +198,8 @@ def rename(
             forced_season=season,
             default_order=config.tvdb.default_order,
             order_override=order,
+            series_details_cache=series_details_cache,
+            ordering_cache=ordering_cache,
         )
 
     try:
@@ -499,9 +506,15 @@ def _prompt_ordering(
 
     typer.echo("")
     while True:
-        choice = typer.prompt(f"Select [1-{len(choices)}]")
+        choice = typer.prompt(
+            f"Select [1-{len(choices)}, q=quit]",
+            default="1",
+        )
+        choice = choice.strip().lower()
+        if choice == "q":
+            raise typer.Exit(0)
         try:
-            idx = int(choice.strip())
+            idx = int(choice)
             if 1 <= idx <= len(choices):
                 return choices[idx - 1][0]
         except ValueError:
@@ -556,6 +569,8 @@ def _resolve_tvdb(
     forced_season: int | None,
     default_order: str,
     order_override: str | None,
+    series_details_cache: dict | None = None,
+    ordering_cache: dict | None = None,
 ) -> tuple | None:
     """Resolve a ParsedFile to TVDB metadata.
 
@@ -563,13 +578,23 @@ def _resolve_tvdb(
     """
     from jfvnamer.models import MediaType, TVDBEpisode
 
+    if series_details_cache is None:
+        series_details_cache = {}
+    if ordering_cache is None:
+        ordering_cache = {}
+
+    def _get_series(sid: int):
+        if sid not in series_details_cache:
+            series_details_cache[sid] = client.get_series_details(sid)
+        return series_details_cache[sid]
+
     # --- Handle forced IDs ---
     if forced_movie_id is not None:
         movie = client.get_movie_details(forced_movie_id)
         return ("movie", movie, None)
 
     if forced_series_id is not None:
-        series = client.get_series_details(forced_series_id)
+        series = _get_series(forced_series_id)
         episode = _match_episode(
             parsed, client, forced_series_id,
             order=order_override or default_order,
@@ -616,14 +641,20 @@ def _resolve_tvdb(
         return ("movie", movie, None)
 
     # It's a series
-    series = client.get_series_details(tvdb_id)
+    series = _get_series(tvdb_id)
 
-    # Determine episode ordering
-    order = order_override or _select_ordering(
-        parsed, client, series,
-        default_order=default_order,
-        no_prompt=no_prompt,
-    )
+    # Determine episode ordering (use cached choice if available)
+    if tvdb_id in ordering_cache:
+        order = ordering_cache[tvdb_id]
+    elif order_override:
+        order = order_override
+    else:
+        order = _select_ordering(
+            parsed, client, series,
+            default_order=default_order,
+            no_prompt=no_prompt,
+        )
+        ordering_cache[tvdb_id] = order
 
     episode = _match_episode(
         parsed, client, tvdb_id,
