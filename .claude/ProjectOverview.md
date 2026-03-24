@@ -127,7 +127,8 @@ This way, adding one custom pattern doesn't nuke the 50+ defaults.
 
 ```toml
 [general]
-library_root = "."          # where to output renamed files
+series_root = "."           # where to output renamed TV series files
+movies_root = "."           # where to output renamed movie files
 action = "move"             # "move", "copy", or "dryrun"
 recursive = true            # scan subdirectories
 verbose = false
@@ -216,7 +217,7 @@ Jellyfin's expected structures are documented here:
 ### TV show target structure:
 
 ```
-{library_root}/
+{series_root}/
   {Series Name} ({Year})/
     Season {XX}/
       {Series Name} - S{XX}E{XX} - {Episode Title}.{ext}
@@ -225,7 +226,7 @@ Jellyfin's expected structures are documented here:
 ### Movie target structure:
 
 ```
-{library_root}/
+{movies_root}/
   {Movie Title} ({Year})/
     {Movie Title} ({Year}).{ext}
 ```

@@ -51,11 +51,11 @@ def video_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def dryrun_config(tmp_path: Path) -> AppConfig:
-    """An AppConfig with action=dryrun and library_root pointing to tmp_path/output."""
+    """An AppConfig with action=dryrun and roots pointing to tmp_path/output."""
     output = tmp_path / "output"
     output.mkdir()
     return AppConfig.model_validate({
-        "general": {"library_root": str(output), "action": "dryrun"},
+        "general": {"series_root": str(output), "movies_root": str(output), "action": "dryrun"},
     })
 
 
@@ -64,7 +64,7 @@ def move_config(tmp_path: Path) -> AppConfig:
     output = tmp_path / "output"
     output.mkdir()
     return AppConfig.model_validate({
-        "general": {"library_root": str(output), "action": "move"},
+        "general": {"series_root": str(output), "movies_root": str(output), "action": "move"},
     })
 
 
@@ -73,7 +73,7 @@ def copy_config(tmp_path: Path) -> AppConfig:
     output = tmp_path / "output"
     output.mkdir()
     return AppConfig.model_validate({
-        "general": {"library_root": str(output), "action": "copy"},
+        "general": {"series_root": str(output), "movies_root": str(output), "action": "copy"},
     })
 
 
@@ -316,7 +316,7 @@ class TestPlanRename:
         actions = plan_rename(
             video,
             sample_parsed,
-            Path(dryrun_config.general.library_root),
+            Path(dryrun_config.general.series_root),
             dryrun_config,
             series=sample_series,
             episode=sample_episode,
@@ -340,7 +340,7 @@ class TestPlanRename:
         actions = plan_rename(
             video,
             sample_movie_parsed,
-            Path(dryrun_config.general.library_root),
+            Path(dryrun_config.general.movies_root),
             dryrun_config,
             movie=sample_movie,
         )
@@ -360,7 +360,7 @@ class TestPlanRename:
         actions = plan_rename(
             video,
             sample_parsed,
-            Path(dryrun_config.general.library_root),
+            Path(dryrun_config.general.series_root),
             dryrun_config,
             series=sample_series,
             episode=sample_episode,
@@ -475,7 +475,7 @@ class TestProcessFiles:
         video.write_text("data")
 
         # Pre-create the target so there's a conflict
-        output = Path(copy_config.general.library_root)
+        output = Path(copy_config.general.series_root)
         target = output / "Breaking Bad (2008)" / "Season 01" / "Breaking Bad - S01E01 - Pilot.mkv"
         target.parent.mkdir(parents=True)
         target.write_text("existing")
@@ -510,7 +510,7 @@ class TestProcessFiles:
         assert results[0].success
         assert not video.exists()  # moved away
 
-        output = Path(move_config.general.library_root)
+        output = Path(move_config.general.movies_root)
         target = output / "Inception (2010)" / "Inception (2010).mp4"
         assert target.exists()
         assert target.read_text() == "movie data"

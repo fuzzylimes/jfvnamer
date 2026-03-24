@@ -139,7 +139,8 @@ def generate_user_config_template() -> str:
 # Uncomment and modify only what you need to change.
 
 [general]
-# library_root = "."          # Where to output renamed files
+# series_root = "."           # Where to output renamed TV series files
+# movies_root = "."           # Where to output renamed movie files
 # action = "move"             # "move", "copy", or "dryrun"
 # recursive = true            # Scan subdirectories
 # verbose = false

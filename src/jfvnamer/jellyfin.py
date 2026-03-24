@@ -5,7 +5,7 @@ Implements the naming conventions documented at:
 - Movies: https://jellyfin.org/docs/general/server/media/movies
 
 The main entry point is ``build_target_path()``, which returns a relative
-path (from library_root) for a given parsed file and TVDB metadata.
+path (from the media library root) for a given parsed file and TVDB metadata.
 """
 
 from __future__ import annotations

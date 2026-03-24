@@ -37,7 +37,8 @@ class ParsedFile(BaseModel):
 
 
 class GeneralConfig(BaseModel):
-    library_root: str = "."
+    series_root: str = "."
+    movies_root: str = "."
     action: Literal["move", "copy", "dryrun"] = "move"
     recursive: bool = True
     verbose: bool = False

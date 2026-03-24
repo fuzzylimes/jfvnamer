@@ -306,7 +306,8 @@ def process_files(
         If True, silently skip files whose target already exists.
         If False, log a warning and skip.
     """
-    library_root = Path(config.general.library_root)
+    series_root = Path(config.general.series_root)
+    movies_root = Path(config.general.movies_root)
     video_files = scan_video_files(input_path, recursive=config.general.recursive)
 
     if not video_files:
@@ -333,8 +334,10 @@ def process_files(
             if result_type == "series":
                 kwargs["series"] = metadata
                 kwargs["episode"] = ep
+                library_root = series_root
             else:
                 kwargs["movie"] = metadata
+                library_root = movies_root
 
             actions = plan_rename(
                 video_path, parsed, library_root, config, **kwargs

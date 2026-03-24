@@ -51,11 +51,12 @@ This creates `~/.config/jfvnamer/config.toml` with commented defaults. At minimu
 api_key = "your-key-here"
 ```
 
-You should also set `library_root` to your Jellyfin media directory:
+You should also set `series_root` and `movies_root` to your Jellyfin media library paths:
 
 ```toml
 [general]
-library_root = "/path/to/jellyfin/media"
+series_root = "/path/to/jellyfin/Shows"
+movies_root = "/path/to/jellyfin/Movies"
 ```
 
 To view the fully resolved config (defaults + your overrides):

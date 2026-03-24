@@ -519,7 +519,7 @@ class TestRenameCommand:
              patch("jfvnamer.tvdb.TVDBClient") as mock_client_cls:
 
             mock_config.return_value = AppConfig.model_validate({
-                "general": {"library_root": str(output), "action": "dryrun"},
+                "general": {"series_root": str(output), "movies_root": str(output), "action": "dryrun"},
                 "tvdb": {"api_key": "key"},
             })
 
@@ -551,7 +551,7 @@ class TestRenameCommand:
              patch("jfvnamer.tvdb.TVDBClient") as mock_client_cls:
 
             mock_config.return_value = AppConfig.model_validate({
-                "general": {"library_root": str(output), "action": "dryrun"},
+                "general": {"series_root": str(output), "movies_root": str(output), "action": "dryrun"},
                 "tvdb": {"api_key": "key"},
             })
 
@@ -599,7 +599,8 @@ class TestHelpOutput:
         assert result.exit_code == 0
         assert "--order" in result.output
         assert "--action" in result.output
-        assert "--library-root" in result.output
+        assert "--series-root" in result.output
+        assert "--movies-root" in result.output
         assert "--no-prompt" in result.output
         assert "--series-id" in result.output
         assert "--movie-id" in result.output

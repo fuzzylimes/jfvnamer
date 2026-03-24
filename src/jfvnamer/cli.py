@@ -119,8 +119,11 @@ def rename(
     action: Optional[str] = typer.Option(
         None, "--action", help="Override action: move, copy, or dryrun."
     ),
-    library_root: Optional[Path] = typer.Option(
-        None, "--library-root", help="Override output root directory."
+    series_root: Optional[Path] = typer.Option(
+        None, "--series-root", help="Override output root directory for TV series."
+    ),
+    movies_root: Optional[Path] = typer.Option(
+        None, "--movies-root", help="Override output root directory for movies."
     ),
     no_prompt: bool = typer.Option(
         False, "--no-prompt", help="Non-interactive mode (skip ambiguous, log warnings)."
@@ -152,8 +155,10 @@ def rename(
     cli_overrides: dict = {}
     if action:
         cli_overrides.setdefault("general", {})["action"] = action
-    if library_root:
-        cli_overrides.setdefault("general", {})["library_root"] = str(library_root)
+    if series_root:
+        cli_overrides.setdefault("general", {})["series_root"] = str(series_root)
+    if movies_root:
+        cli_overrides.setdefault("general", {})["movies_root"] = str(movies_root)
     if verbose:
         cli_overrides.setdefault("general", {})["verbose"] = True
     if order:
