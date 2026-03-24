@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from jfvnamer.models import ParsedFile, TVDBEpisode, TVDBSeriesDetails
+from jfvnamer.models import ParsedFile, TVDBEpisode, TVDBSearchResult, TVDBSeriesDetails
 from jfvnamer.tvdb import TVDBClient
 import typer
 
@@ -195,6 +195,7 @@ def rename(
     # when processing multiple files from the same series.
     series_details_cache: dict[int, "TVDBSeriesDetails"] = {}
     ordering_cache: dict[int, str] = {}
+    search_selection_cache: dict[str, tuple[int, str]] = {}
 
     # Build the resolver callback
     def resolver(parsed: ParsedFile):
@@ -209,6 +210,7 @@ def rename(
             order_override=order,
             series_details_cache=series_details_cache,
             ordering_cache=ordering_cache,
+            search_selection_cache=search_selection_cache,
         )
 
     try:
@@ -276,8 +278,9 @@ def search(
     for i, r in enumerate(results, 1):
         label = f"[{r.type.capitalize()}]"
         year_str = f" ({r.year})" if r.year else ""
+        genre_str = f"  [{', '.join(r.genres[:3])}]" if r.genres else ""
         typer.echo(
-            f"  {i:>2}. {label:<10} {r.name}{year_str} — TVDB ID: {r.tvdb_id}")
+            f"  {i:>2}. {label:<10} {r.name}{year_str}{genre_str} — TVDB ID: {r.tvdb_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -412,8 +415,9 @@ def _prompt_disambiguation(
     for i, r in enumerate(results, 1):
         label = f"[{r.type.capitalize()}]"
         year_str = f" ({r.year})" if r.year else ""
+        genre_str = f"  [{', '.join(r.genres[:3])}]" if r.genres else ""
         typer.echo(
-            f"  {i}. {label:<10} {r.name}{year_str} — TVDB ID: {r.tvdb_id}")
+            f"  {i}. {label:<10} {r.name}{year_str}{genre_str} — TVDB ID: {r.tvdb_id}")
     typer.echo("")
 
     while True:
@@ -460,7 +464,6 @@ def _prompt_manual_tvdb_id() -> tuple[int, str] | None:
 def _prompt_ordering(
     series_name: str,
     available_types: list[str],
-    episodes_by_type: dict[str, dict],
     *,
     auto_dvd: bool = False,
 ) -> str:
@@ -471,56 +474,35 @@ def _prompt_ordering(
     series_name:
         Display name for the series.
     available_types:
-        List of TVDB season type strings (e.g. ["default", "dvd", "absolute"]).
-    episodes_by_type:
-        Dict mapping season type to {"seasons": int, "episodes": int} counts.
+        User-facing ordering names (e.g. ["aired", "dvd", "absolute"]).
     auto_dvd:
         If True, auto-select DVD ordering (based on filename heuristic).
 
     Returns one of "aired", "dvd", "absolute".
     """
-    from jfvnamer.tvdb import ORDER_MAP
-
-    # Build reverse map: tvdb_type -> user_facing_name
-    reverse_map = {v: k for k, v in ORDER_MAP.items()}
-
-    # Filter to types that exist for this series
-    choices: list[tuple[str, str]] = []  # (season_type, tvdb_type)
-    for tvdb_type in available_types:
-        season_type = reverse_map.get(tvdb_type)
-        if season_type:
-            choices.append((season_type, tvdb_type))
-
-    if not choices:
-        # Fallback to aired
+    if not available_types:
         return "aired"
 
-    if len(choices) == 1:
-        return choices[0][0]
+    if len(available_types) == 1:
+        return available_types[0]
 
     # Auto-select DVD if filename indicates it
-    if auto_dvd:
-        for season_type, tvdb_type in choices:
-            if season_type == "dvd":
-                typer.echo(
-                    "Auto-selected DVD ordering based on filename. "
-                    "Override with --order aired"
-                )
-                return "dvd"
+    if auto_dvd and "dvd" in available_types:
+        typer.echo(
+            "Auto-selected DVD ordering based on filename. "
+            "Override with --order aired"
+        )
+        return "dvd"
 
     typer.echo(f'\nEpisode ordering for "{series_name}":')
-    for i, (season_type, tvdb_type) in enumerate(choices, 1):
-        info = episodes_by_type.get(tvdb_type, {})
-        seasons = info.get("seasons", "?")
-        episodes = info.get("episodes", "?")
-        label = season_type.capitalize() + " Order"
-        typer.echo(
-            f"  {i}. {label} ({seasons} seasons, {episodes} episodes)")
+    for i, order_name in enumerate(available_types, 1):
+        label = order_name.capitalize() + " Order"
+        typer.echo(f"  {i}. {label}")
 
     typer.echo("")
     while True:
         choice = typer.prompt(
-            f"Select [1-{len(choices)}, q=quit]",
+            f"Select [1-{len(available_types)}, q=quit]",
             default="1",
         )
         choice = choice.strip().lower()
@@ -528,43 +510,11 @@ def _prompt_ordering(
             raise typer.Exit(0)
         try:
             idx = int(choice)
-            if 1 <= idx <= len(choices):
-                return choices[idx - 1][0]
+            if 1 <= idx <= len(available_types):
+                return available_types[idx - 1]
         except ValueError:
             pass
         typer.echo("Invalid selection, try again.")
-
-
-def _count_episodes_by_type(
-    client: "TVDBClient",
-    series_id: int,
-    season_types: list[str],
-) -> dict[str, dict]:
-    """Fetch episode counts per ordering type for display in the ordering prompt."""
-    from jfvnamer.tvdb import ORDER_MAP
-
-    reverse_map = {v: k for k, v in ORDER_MAP.items()}
-    result: dict[str, dict] = {}
-
-    for tvdb_type in season_types:
-        season_type = reverse_map.get(tvdb_type)
-        if not season_type:
-            continue
-        try:
-            episodes = client.get_episodes(series_id, order=season_type)
-            seasons = set()
-            for ep in episodes:
-                seasons.add(ep.season_number)
-            # Exclude season 0 (specials) from the count
-            regular_seasons = {s for s in seasons if s > 0}
-            result[tvdb_type] = {
-                "seasons": len(regular_seasons),
-                "episodes": len([e for e in episodes if e.season_number > 0]),
-            }
-        except Exception:
-            result[tvdb_type] = {"seasons": 0, "episodes": 0}
-
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -584,6 +534,7 @@ def _resolve_tvdb(
     order_override: str | None,
     series_details_cache: dict | None = None,
     ordering_cache: dict | None = None,
+    search_selection_cache: dict | None = None,
 ) -> tuple | None:
     """Resolve a ParsedFile to TVDB metadata.
 
@@ -595,6 +546,8 @@ def _resolve_tvdb(
         series_details_cache = {}
     if ordering_cache is None:
         ordering_cache = {}
+    if search_selection_cache is None:
+        search_selection_cache = {}
 
     def _get_series(sid: int):
         if sid not in series_details_cache:
@@ -615,39 +568,54 @@ def _resolve_tvdb(
         )
         return ("series", series, episode)
 
-    # --- Check search cache ---
-    cached = client.get_cached_search(parsed.title)
-    if cached:
-        tvdb_id = cached["tvdb_id"]
-        result_type = cached["type"]
+    # --- Search TVDB (with cached results and session selection) ---
+    translated_name: str | None = None
+    search_genres: list[str] = []
+    title_key = parsed.title.lower().strip()
+
+    # Check if we already selected a result for this title in this session
+    if title_key in search_selection_cache:
+        tvdb_id, result_type = search_selection_cache[title_key]
         logger.debug(
-            "Using cached search result for '%s': %s (ID: %d)",
-            parsed.title, cached["name"], tvdb_id,
+            "Using session-cached selection for '%s': ID %d",
+            parsed.title, tvdb_id,
         )
     else:
-        # --- Search TVDB ---
-        search_type = None
-        if parsed.media_type == MediaType.TV:
-            search_type = "series"
-        elif parsed.media_type == MediaType.MOVIE:
-            search_type = "movie"
+        # Get search results (from disk cache or API)
+        cached_results = client.get_cached_search(parsed.title)
+        if cached_results is not None:
+            results = [TVDBSearchResult(**r) for r in cached_results]
+            logger.debug(
+                "Using cached search results for '%s' (%d results)",
+                parsed.title, len(results),
+            )
+        else:
+            search_type = None
+            if parsed.media_type == MediaType.TV:
+                search_type = "series"
+            elif parsed.media_type == MediaType.MOVIE:
+                search_type = "movie"
 
-        results = client.search(parsed.title, media_type=search_type)
+            results = client.search(parsed.title, media_type=search_type)
+            client.cache_search_results(
+                parsed.title,
+                [r.model_dump() for r in results],
+            )
+
         selection = _prompt_disambiguation(
             parsed.title, results, no_prompt=no_prompt)
         if selection is None:
             return None
 
         tvdb_id, result_type = selection
+        search_selection_cache[title_key] = (tvdb_id, result_type)
 
-        # Find the name to cache
-        name = parsed.title
+        # Find the selected result's name and genres
         for r in results:
             if r.tvdb_id == tvdb_id:
-                name = r.name
+                translated_name = r.name
+                search_genres = r.genres
                 break
-
-        client.cache_search_result(parsed.title, tvdb_id, result_type, name)
 
     # --- Fetch details based on type ---
     if result_type == "movie":
@@ -657,6 +625,10 @@ def _resolve_tvdb(
     # It's a series
     series = _get_series(tvdb_id)
 
+    # Use the translated name from search if available
+    if translated_name:
+        series.name = translated_name
+
     # Determine episode ordering (use cached choice if available)
     if tvdb_id in ordering_cache:
         order = ordering_cache[tvdb_id]
@@ -664,9 +636,10 @@ def _resolve_tvdb(
         order = order_override
     else:
         order = _select_ordering(
-            parsed, client, series,
+            parsed, series,
             default_order=default_order,
             no_prompt=no_prompt,
+            genres=search_genres,
         )
         ordering_cache[tvdb_id] = order
 
@@ -680,34 +653,42 @@ def _resolve_tvdb(
 
 def _select_ordering(
     parsed: "ParsedFile",
-    client: "TVDBClient",
     series: "TVDBSeriesDetails",
     *,
     default_order: str,
     no_prompt: bool,
+    genres: list[str] | None = None,
 ) -> str:
-    """Determine the episode ordering to use for a series."""
-    # Check for DVD source keywords in the original filename
+    """Determine the episode ordering to use for a series.
+
+    Defaults: anime -> absolute, everything else -> aired.
+    DVD/BD source in filename -> dvd.
+    """
     auto_dvd = bool(_DVD_SOURCE_RE.search(parsed.original_filename))
+    is_anime = any(g.lower() == "anime" for g in (genres or []))
+
+    # Pick the best default based on content type
+    effective_default = "absolute" if is_anime else default_order
+
+    if auto_dvd and "dvd" in series.season_types:
+        if not no_prompt:
+            typer.echo(
+                "Auto-selected DVD ordering based on filename. "
+                "Override with --order aired"
+            )
+        else:
+            logger.info("Auto-selected DVD ordering based on filename.")
+        return "dvd"
 
     if no_prompt:
-        if auto_dvd:
-            logger.info("Auto-selected DVD ordering based on filename.")
-            return "dvd"
-        return default_order
+        return effective_default
 
     if not series.season_types or len(series.season_types) <= 1:
-        return default_order
-
-    # Fetch episode counts for the ordering prompt
-    counts = _count_episodes_by_type(
-        client, series.tvdb_id, series.season_types)
+        return effective_default
 
     return _prompt_ordering(
         series.name,
         series.season_types,
-        counts,
-        auto_dvd=auto_dvd,
     )
 
 

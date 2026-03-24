@@ -109,6 +109,8 @@ class TVDBSearchResult(BaseModel):
     year: Optional[str] = Field(
         default=None, description="Year of release/premiere")
     overview: Optional[str] = Field(default=None, description="Short synopsis")
+    genres: list[str] = Field(
+        default_factory=list, description="Genre tags")
 
 
 class TVDBSeriesDetails(BaseModel):

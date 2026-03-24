@@ -198,7 +198,7 @@ class TestSeries:
         assert details.name == "Breaking Bad"
         assert details.year == "2008"
         assert details.status == "Ended"
-        assert "default" in details.season_types
+        assert "aired" in details.season_types
         assert "dvd" in details.season_types
         assert "absolute" in details.season_types
 
@@ -297,19 +297,24 @@ class TestMovie:
 
 class TestSearchCache:
     def test_cache_and_retrieve(self, client):
-        client.cache_search_result(
-            "breaking bad", tvdb_id=81189, result_type="series", name="Breaking Bad")
+        results = [
+            {"tvdb_id": 81189, "name": "Breaking Bad", "type": "series", "year": "2008", "overview": None, "genres": []},
+        ]
+        client.cache_search_results("breaking bad", results)
         cached = client.get_cached_search("Breaking Bad")
         assert cached is not None
-        assert cached["tvdb_id"] == 81189
-        assert cached["type"] == "series"
+        assert len(cached) == 1
+        assert cached[0]["tvdb_id"] == 81189
+        assert cached[0]["type"] == "series"
 
     def test_cache_miss(self, client):
         assert client.get_cached_search("nonexistent") is None
 
     def test_cache_expired(self, client):
-        client.cache_search_result(
-            "old show", tvdb_id=1, result_type="series", name="Old Show")
+        results = [
+            {"tvdb_id": 1, "name": "Old Show", "type": "series", "year": None, "overview": None, "genres": []},
+        ]
+        client.cache_search_results("old show", results)
         # Manually expire the entry
         cache = client.load_search_cache()
         cache["old show"]["cached_at"] = time.time() - client._cache_ttl - 1

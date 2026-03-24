@@ -37,6 +37,15 @@ ORDER_MAP: dict[str, str] = {
     "absolute": "absolute",
 }
 
+# Map TVDB API season-type names to user-facing ordering names.
+# "official" and "default" both refer to the standard aired order.
+SEASON_TYPE_MAP: dict[str, str] = {
+    "official": "aired",
+    "default": "aired",
+    "dvd": "dvd",
+    "absolute": "absolute",
+}
+
 
 class TVDBAuthError(Exception):
     """Raised when TVDB authentication fails."""
@@ -177,6 +186,15 @@ class TVDBClient:
             if tvdb_id is None:
                 continue
             language_title = item.get("translations", {}).get(self._language)
+
+            # Parse genres (can be list of strings or list of dicts)
+            genres: list[str] = []
+            for g in item.get("genres", []) or []:
+                if isinstance(g, str):
+                    genres.append(g)
+                elif isinstance(g, dict) and g.get("name"):
+                    genres.append(g["name"])
+
             results.append(
                 TVDBSearchResult(
                     tvdb_id=int(tvdb_id),
@@ -184,6 +202,7 @@ class TVDBClient:
                     type=item.get("type", "unknown"),
                     year=item.get("year"),
                     overview=item.get("overview"),
+                    genres=genres,
                 )
             )
         return results
@@ -197,11 +216,17 @@ class TVDBClient:
         body = self._get(f"/series/{series_id}/extended?short=true")
         data = body.get("data", {})
 
+        seen: set[str] = set()
         season_types: list[str] = []
         for st in data.get("seasonTypes", []):
             st_type = st.get("type")
-            if st_type:
-                season_types.append(st_type)
+            if not st_type:
+                continue
+            # Normalize to user-facing name, skip unknown types
+            user_facing = SEASON_TYPE_MAP.get(st_type)
+            if user_facing and user_facing not in seen:
+                seen.add(user_facing)
+                season_types.append(user_facing)
 
         return TVDBSeriesDetails(
             tvdb_id=series_id,
@@ -299,27 +324,25 @@ class TVDBClient:
         """Persist the search cache to disk."""
         SEARCH_CACHE_PATH.write_text(json.dumps(cache, indent=2))
 
-    def get_cached_search(self, query: str) -> dict[str, Any] | None:
-        """Look up a cached search-to-ID mapping.
+    def get_cached_search(self, query: str) -> list[dict[str, Any]] | None:
+        """Look up cached search results for a query.
 
-        Returns a dict with ``tvdb_id``, ``type``, and ``name`` if cached
-        and not expired, else ``None``.
+        Returns the list of search result dicts if cached and not expired,
+        else ``None``.
         """
         cache = self.load_search_cache()
         key = query.lower().strip()
         entry = cache.get(key)
         if entry and entry.get("cached_at", 0) + self._cache_ttl > time.time():
-            return entry
+            return entry.get("results", [])
         return None
 
-    def cache_search_result(self, query: str, tvdb_id: int, result_type: str, name: str) -> None:
-        """Cache a user's search selection for future runs."""
+    def cache_search_results(self, query: str, results: list[dict[str, Any]]) -> None:
+        """Cache search results for future runs."""
         cache = self.load_search_cache()
         key = query.lower().strip()
         cache[key] = {
-            "tvdb_id": tvdb_id,
-            "type": result_type,
-            "name": name,
+            "results": results,
             "cached_at": time.time(),
         }
         self.save_search_cache(cache)

@@ -303,50 +303,30 @@ class TestPromptDisambiguation:
 
 class TestPromptOrdering:
     def test_single_choice_auto_selects(self) -> None:
-        result = _prompt_ordering(
-            "Show",
-            ["default"],
-            {"default": {"seasons": 5, "episodes": 50}},
-        )
+        result = _prompt_ordering("Show", ["aired"])
         assert result == "aired"
 
     def test_no_choices_defaults_aired(self) -> None:
-        result = _prompt_ordering("Show", [], {})
+        result = _prompt_ordering("Show", [])
         assert result == "aired"
 
     def test_auto_dvd(self) -> None:
         result = _prompt_ordering(
-            "Show",
-            ["default", "dvd"],
-            {"default": {"seasons": 5, "episodes": 50},
-                "dvd": {"seasons": 5, "episodes": 50}},
-            auto_dvd=True,
+            "Show", ["aired", "dvd"], auto_dvd=True,
         )
         assert result == "dvd"
 
     def test_user_selects_ordering(self) -> None:
         with patch("jfvnamer.cli.typer.prompt", return_value="2"):
             result = _prompt_ordering(
-                "Show",
-                ["default", "dvd", "absolute"],
-                {
-                    "default": {"seasons": 5, "episodes": 50},
-                    "dvd": {"seasons": 5, "episodes": 48},
-                    "absolute": {"seasons": 0, "episodes": 50},
-                },
+                "Show", ["aired", "dvd", "absolute"],
             )
         assert result == "dvd"
 
     def test_user_selects_absolute(self) -> None:
         with patch("jfvnamer.cli.typer.prompt", return_value="3"):
             result = _prompt_ordering(
-                "Show",
-                ["default", "dvd", "absolute"],
-                {
-                    "default": {"seasons": 5, "episodes": 50},
-                    "dvd": {"seasons": 5, "episodes": 48},
-                    "absolute": {"seasons": 0, "episodes": 50},
-                },
+                "Show", ["aired", "dvd", "absolute"],
             )
         assert result == "absolute"
 
@@ -473,11 +453,10 @@ class TestDVDAutoDetection:
 class TestSelectOrdering:
     def test_no_prompt_uses_default(self, parsed_tv: ParsedFile) -> None:
         series = TVDBSeriesDetails(
-            tvdb_id=1, name="Show", season_types=["default", "dvd"]
+            tvdb_id=1, name="Show", season_types=["aired", "dvd"]
         )
-        client = MagicMock()
         result = _select_ordering(
-            parsed_tv, client, series,
+            parsed_tv, series,
             default_order="aired", no_prompt=True,
         )
         assert result == "aired"
@@ -492,25 +471,34 @@ class TestSelectOrdering:
             original_filename="show.s01e01.dvdrip.mkv",
         )
         series = TVDBSeriesDetails(
-            tvdb_id=1, name="Show", season_types=["default", "dvd"]
+            tvdb_id=1, name="Show", season_types=["aired", "dvd"]
         )
-        client = MagicMock()
         result = _select_ordering(
-            parsed, client, series,
+            parsed, series,
             default_order="aired", no_prompt=True,
         )
         assert result == "dvd"
 
     def test_single_season_type_returns_default(self, parsed_tv: ParsedFile) -> None:
         series = TVDBSeriesDetails(
-            tvdb_id=1, name="Show", season_types=["default"]
+            tvdb_id=1, name="Show", season_types=["aired"]
         )
-        client = MagicMock()
         result = _select_ordering(
-            parsed_tv, client, series,
+            parsed_tv, series,
             default_order="aired", no_prompt=False,
         )
         assert result == "aired"
+
+    def test_anime_defaults_to_absolute(self, parsed_tv: ParsedFile) -> None:
+        series = TVDBSeriesDetails(
+            tvdb_id=1, name="Naruto", season_types=["aired", "absolute"]
+        )
+        result = _select_ordering(
+            parsed_tv, series,
+            default_order="aired", no_prompt=True,
+            genres=["Animation", "Anime", "Action"],
+        )
+        assert result == "absolute"
 
 
 # ---------------------------------------------------------------------------
@@ -543,9 +531,9 @@ class TestRenameCommand:
 
             mock_client = MagicMock()
             mock_client_cls.return_value = mock_client
-            mock_client.get_cached_search.return_value = {
-                "tvdb_id": 81189, "type": "series", "name": "Breaking Bad",
-            }
+            mock_client.get_cached_search.return_value = [
+                {"tvdb_id": 81189, "type": "series", "name": "Breaking Bad", "year": "2008", "overview": None, "genres": []},
+            ]
             mock_client.get_series_details.return_value = TVDBSeriesDetails(
                 tvdb_id=81189, name="Breaking Bad", year="2008", season_types=["default"],
             )

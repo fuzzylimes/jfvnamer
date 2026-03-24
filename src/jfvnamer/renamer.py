@@ -13,6 +13,8 @@ import logging
 import os
 import shutil
 from pathlib import Path
+
+import click
 from typing import Any, Callable, Optional
 
 from jfvnamer.jellyfin import build_target_path
@@ -371,6 +373,8 @@ def process_files(
                 else:
                     logger.error("FAILED: %s -> %s: %s", result.source, result.destination, result.error)
 
+        except click.exceptions.Exit:
+            raise
         except Exception:
             logger.exception("Error processing %s", video_path.name)
             continue
