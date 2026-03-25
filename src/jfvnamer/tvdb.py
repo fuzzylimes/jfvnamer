@@ -159,6 +159,12 @@ class TVDBClient:
             Optional filter — ``"series"`` or ``"movie"``. If ``None``,
             searches across both.
         """
+        cache_key = f"{query}:{media_type}"
+        cached = self.get_cached_search(cache_key)
+        if cached is not None:
+            logger.debug("Using cached search for '%s'", query)
+            return [TVDBSearchResult.model_validate(r) for r in cached]
+
         params: dict[str, str] = {"query": query}
         if media_type:
             params["type"] = media_type
@@ -193,6 +199,7 @@ class TVDBClient:
                     genres=genres,
                 )
             )
+        self.cache_search_results(cache_key, [r.model_dump() for r in results])
         return results
 
     # ------------------------------------------------------------------
@@ -213,7 +220,9 @@ class TVDBClient:
     def get_series_details(self, series_id: int) -> TVDBSeriesDetails:
         """Fetch extended details for a series."""
         body = self._get(
-            f"/series/{series_id}/extended?meta=translations&short=true")
+            f"/series/{series_id}/extended",
+            params={"meta": "translations", "short": "true"},
+        )
         data = body.get("data", {})
 
         titles = self._parse_name_translations(data)
@@ -298,7 +307,9 @@ class TVDBClient:
     def get_movie_details(self, movie_id: int) -> TVDBMovieDetails:
         """Fetch extended details for a movie."""
         body = self._get(
-            f"/movies/{movie_id}/extended?meta=translations&short=true")
+            f"/movies/{movie_id}/extended",
+            params={"meta": "translations", "short": "true"},
+        )
         data = body.get("data", {})
         titles = self._parse_name_translations(data)
         name = self._pick_translated_name(titles, data.get("name", "Unknown"))

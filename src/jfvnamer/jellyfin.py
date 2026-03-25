@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime
 from pathlib import PurePosixPath
-from typing import Optional
 
 from jfvnamer.models import (
     NamingConfig,
@@ -129,10 +128,11 @@ def build_episode_filename(
                 episode_title=title,
             )
         else:
-            # Fall back to no-title format with episode range
-            filename = (
-                f"{clean} - S{season_number:02d}E{episode_numbers[0]:02d}"
-                f"-E{episode_numbers[-1]:02d}"
+            filename = cfg.multi_episode_format_no_title.format(
+                series_name=clean,
+                season=season_number,
+                episode=episode_numbers[0],
+                episode_end=episode_numbers[-1],
             )
     elif episode_title:
         title = sanitize_name(

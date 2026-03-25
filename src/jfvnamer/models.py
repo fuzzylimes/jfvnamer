@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ParsedFile(BaseModel):
@@ -50,6 +50,7 @@ class NamingConfig(BaseModel):
     episode_format: str = "{series_name} - S{season:02d}E{episode:02d} - {episode_title}"
     episode_format_no_title: str = "{series_name} - S{season:02d}E{episode:02d}"
     multi_episode_format: str = "{series_name} - S{season:02d}E{episode:02d}-E{episode_end:02d} - {episode_title}"
+    multi_episode_format_no_title: str = "{series_name} - S{season:02d}E{episode:02d}-E{episode_end:02d}"
     date_episode_fallback: str = "{series_name} - {date}"
     movie_folder_format: str = "{title} ({year})"
     movie_file_format: str = "{title} ({year})"
@@ -118,9 +119,11 @@ class TVDBMovieDetails(BaseModel):
 class TVDBNameTranslation(BaseModel):
     """nameTranslation inside of translations in series/{id}/extended?meta=translations&short=true response"""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     language: str
-    isPrimary: Optional[bool] = None
+    is_primary: Optional[bool] = Field(default=None, alias="isPrimary")
 
 # ---------------------------------------------------------------------------
 # Rename engine models
@@ -160,5 +163,5 @@ class RenameResult(BaseModel):
 class UndoLogEntry(BaseModel):
     """A log of rename operations that can be reversed."""
 
-    timestamp: str = Field(description="ISO-format timestamp of the operation")
+    timestamp: datetime.datetime = Field(description="Timestamp of the operation")
     actions: list[RenameResult] = Field(default_factory=list)

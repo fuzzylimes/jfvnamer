@@ -8,7 +8,10 @@ from pathlib import Path
 import typer
 
 from jfvnamer.models import (
+    AppConfig,
     ParsedFile,
+    RenameAction,
+    RenameResult,
     TVDBEpisode,
     TVDBSearchResult,
     TVDBSeriesDetails,
@@ -24,15 +27,20 @@ def run_group_interactive(
     group: list[tuple[Path, ParsedFile]],
     *,
     client: TVDBClient,
-    config,
+    config: AppConfig,
     no_prompt: bool,
     forced_series_id: int | None,
     forced_movie_id: int | None,
     forced_season: int | None,
     skip_existing: bool,
-    series_details_cache: dict,
-) -> list:
-    """Process one group of files with the interactive rename flow."""
+    series_details_cache: dict[int, TVDBSeriesDetails],
+) -> list[RenameResult]:
+    """Process one group of files with the interactive rename flow.
+
+    ``series_details_cache`` is a shared dict that persists across calls so
+    that repeated lookups for the same series ID hit the cache rather than
+    the API.
+    """
     typer.echo(f"\nSearching: {title}")
 
     # --- Step 1: Determine TVDB selection ---
@@ -159,13 +167,14 @@ def search_tvdb_loop(
 def display_search_results(results: list[TVDBSearchResult]) -> None:
     for i, r in enumerate(results, 1):
         label = f"[{r.type.capitalize()}]"
-        year_str = "" if (r.year and r.year in r.name) else f" ({r.year})" if r.year else ""
+        year_str = "" if (
+            r.year and r.year in r.name) else f" ({r.year})" if r.year else ""
         genre_str = f"  [{', '.join(r.genres[:3])}]" if r.genres else ""
         typer.echo(
             f"  {i:>2}. {label:<10} {r.name}{year_str}{genre_str} — TVDB ID: {r.tvdb_id}")
 
 
-def display_planned_actions(actions: list) -> None:
+def display_planned_actions(actions: list[RenameAction]) -> None:
     """Print planned rename actions grouped by source."""
     typer.echo("")
     for action in actions:
@@ -199,10 +208,10 @@ def prompt_season_type(series: TVDBSeriesDetails) -> str:
 
 
 def execute_with_conflict_check(
-    actions: list,
+    actions: list[RenameAction],
     *,
     skip_existing: bool,
-) -> list:
+) -> list[RenameResult]:
     """Check conflicts and execute actions, returning results."""
     results = []
     for action in actions:

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from jfvnamer.config import (
+    MissingApiKeyError,
     _deep_merge,
     generate_user_config_template,
     load_config,
@@ -108,9 +109,8 @@ class TestLoadConfig:
 class TestValidateApiKey:
     def test_empty_key_raises(self) -> None:
         cfg = AppConfig()
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(MissingApiKeyError, match="TVDB API key"):
             validate_api_key(cfg)
-        assert "TVDB API key" in str(exc_info.value)
 
     def test_valid_key_passes(self) -> None:
         cfg = AppConfig(tvdb={"api_key": "some-key"})  # type: ignore[arg-type]

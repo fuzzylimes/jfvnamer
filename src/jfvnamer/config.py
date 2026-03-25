@@ -9,6 +9,13 @@ Resolution order (highest priority wins):
 from __future__ import annotations
 
 import sys
+from importlib.resources import files
+
+try:
+    from importlib.resources.abc import Traversable  # Python 3.12+
+except ImportError:
+    # type: ignore[no-redef]  # Python 3.10–3.11
+    from importlib.abc import Traversable
 from pathlib import Path
 from typing import Any
 
@@ -26,8 +33,8 @@ from jfvnamer.models import AppConfig
 # Paths
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve(
-).parent.parent.parent / "config" / "default.toml"
+_DEFAULT_CONFIG: Traversable = files(
+    "jfvnamer").joinpath("config/default.toml")
 USER_CONFIG_DIR = Path.home() / ".config" / "jfvnamer"
 USER_CONFIG_PATH = USER_CONFIG_DIR / "config.toml"
 
@@ -37,9 +44,9 @@ USER_CONFIG_PATH = USER_CONFIG_DIR / "config.toml"
 # ---------------------------------------------------------------------------
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
+def _load_toml(path: Path | Traversable) -> dict[str, Any]:
     """Load a TOML file and return its contents as a dict."""
-    with open(path, "rb") as f:
+    with path.open("rb") as f:
         return tomllib.load(f)
 
 
@@ -85,8 +92,8 @@ def load_config(
         ``{"general": {"verbose": True}}``).  Applied last (highest priority).
     """
     # 1. Built-in defaults
-    if DEFAULT_CONFIG_PATH.exists():
-        defaults = _load_toml(DEFAULT_CONFIG_PATH)
+    if _DEFAULT_CONFIG.is_file():
+        defaults = _load_toml(_DEFAULT_CONFIG)
     else:
         defaults = {}
 
@@ -135,6 +142,7 @@ api_key = ""                  # Required — get yours at https://thetvdb.com/ap
 # episode_format = "{series_name} - S{season:02d}E{episode:02d} - {episode_title}"
 # episode_format_no_title = "{series_name} - S{season:02d}E{episode:02d}"
 # multi_episode_format = "{series_name} - S{season:02d}E{episode:02d}-E{episode_end:02d} - {episode_title}"
+# multi_episode_format_no_title = "{series_name} - S{season:02d}E{episode:02d}-E{episode_end:02d}"
 # date_episode_fallback = "{series_name} - {date}"
 # movie_folder_format = "{title} ({year})"
 # movie_file_format = "{title} ({year})"
@@ -143,11 +151,15 @@ api_key = ""                  # Required — get yours at https://thetvdb.com/ap
 """
 
 
+class MissingApiKeyError(Exception):
+    """Raised when the TVDB API key is not configured."""
+
+
 def validate_api_key(config: AppConfig) -> None:
-    """Raise a helpful error if the TVDB API key is not configured."""
+    """Raise MissingApiKeyError if the TVDB API key is not configured."""
     if not config.tvdb.api_key:
-        raise SystemExit(
-            "Error: TVDB API key is not configured.\n"
+        raise MissingApiKeyError(
+            "TVDB API key is not configured.\n"
             "\n"
             "To use TVDB lookups, set your API key in one of these ways:\n"
             "  1. Add it to ~/.config/jfvnamer/config.toml:\n"

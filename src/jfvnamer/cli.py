@@ -150,7 +150,7 @@ def rename(
     ),
 ) -> None:
     """Main rename workflow: parse, look up TVDB, and rename/move/copy files."""
-    from jfvnamer.config import load_config, validate_api_key
+    from jfvnamer.config import MissingApiKeyError, load_config, validate_api_key
 
     cli_overrides: dict = {}
     if action:
@@ -167,7 +167,11 @@ def rename(
     config = load_config(user_config_path=config_file,
                          cli_overrides=cli_overrides or None)
     _setup_logging(config.general.verbose)
-    validate_api_key(config)
+    try:
+        validate_api_key(config)
+    except MissingApiKeyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
 
     if not path.exists():
         typer.echo(f"Error: {path} does not exist.", err=True)
@@ -239,10 +243,14 @@ def search(
     ),
 ) -> None:
     """Search TVDB interactively."""
-    from jfvnamer.config import load_config, validate_api_key
+    from jfvnamer.config import MissingApiKeyError, load_config, validate_api_key
 
     config = load_config(user_config_path=config_file)
-    validate_api_key(config)
+    try:
+        validate_api_key(config)
+    except MissingApiKeyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
 
     client = TVDBClient(
         api_key=config.tvdb.api_key,

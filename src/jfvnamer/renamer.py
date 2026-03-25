@@ -186,11 +186,11 @@ def write_undo_log(results: list[RenameResult]) -> Path | None:
         return None
 
     UNDO_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = UNDO_DIR / f"{timestamp}.json"
+    now = datetime.datetime.now()
+    log_path = UNDO_DIR / f"{now.strftime('%Y%m%d_%H%M%S')}.json"
 
     entry = UndoLogEntry(
-        timestamp=datetime.datetime.now().isoformat(),
+        timestamp=now,
         actions=actionable,
     )
     log_path.write_text(json.dumps(entry.model_dump(mode="json"), indent=2))
@@ -199,7 +199,12 @@ def write_undo_log(results: list[RenameResult]) -> Path | None:
 
 
 def undo_rename(log_path: Path) -> list[RenameResult]:
-    """Reverse a previous rename operation using its undo log."""
+    """Reverse a previous rename operation using its undo log.
+
+    Note: undoing a ``copy`` action copies the file back to its original
+    location but does *not* delete the destination copy, leaving both in
+    place. To fully clean up a copy, manually remove the destination file.
+    """
     data = json.loads(log_path.read_text())
     entry = UndoLogEntry.model_validate(data)
     results: list[RenameResult] = []
