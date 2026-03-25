@@ -9,11 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from jfvnamer.cli import (
-    _match_episode,
-    _prompt_disambiguation,
-    app,
-)
+from jfvnamer.cli import app
+from jfvnamer.resolver import match_episode
 from jfvnamer.models import (
     AppConfig,
     ParsedFile,
@@ -42,18 +39,6 @@ def parsed_tv() -> ParsedFile:
         file_extension=".mkv",
         original_filename="Breaking Bad - S01E01 - Pilot.mkv",
     )
-
-
-@pytest.fixture()
-def search_results() -> list[TVDBSearchResult]:
-    return [
-        TVDBSearchResult(tvdb_id=77551, name="The Batman",
-                         type="series", year="2004"),
-        TVDBSearchResult(tvdb_id=331482, name="The Batman",
-                         type="movie", year="2022"),
-        TVDBSearchResult(tvdb_id=77871, name="Batman",
-                         type="series", year="1966"),
-    ]
 
 
 @pytest.fixture()
@@ -224,66 +209,13 @@ class TestUndoCommand:
 
 
 # ---------------------------------------------------------------------------
-# Interactive disambiguation: _prompt_disambiguation
-# ---------------------------------------------------------------------------
-
-
-class TestPromptDisambiguation:
-    def test_single_result_auto_selects(self, search_results: list[TVDBSearchResult]) -> None:
-        single = [search_results[0]]
-        result = _prompt_disambiguation("The Batman", single)
-        assert result == (77551, "series")
-
-    def test_no_results(self) -> None:
-        result = _prompt_disambiguation("Nothing", [])
-        assert result is None
-
-    def test_no_prompt_picks_first(self, search_results: list[TVDBSearchResult]) -> None:
-        result = _prompt_disambiguation(
-            "The Batman", search_results, no_prompt=True)
-        assert result == (77551, "series")
-
-    def test_user_selects_number(self, search_results: list[TVDBSearchResult]) -> None:
-        with patch("jfvnamer.cli.typer.prompt", return_value="2"):
-            result = _prompt_disambiguation("The Batman", search_results)
-        assert result == (331482, "movie")
-
-    def test_user_selects_skip(self, search_results: list[TVDBSearchResult]) -> None:
-        with patch("jfvnamer.cli.typer.prompt", return_value="s"):
-            result = _prompt_disambiguation("The Batman", search_results)
-        assert result is None
-
-    def test_user_selects_quit(self, search_results: list[TVDBSearchResult]) -> None:
-        from click.exceptions import Exit as ClickExit
-
-        with patch("jfvnamer.cli.typer.prompt", return_value="q"):
-            with pytest.raises(ClickExit):
-                _prompt_disambiguation("The Batman", search_results)
-
-    def test_user_selects_manual_id(self, search_results: list[TVDBSearchResult]) -> None:
-        with patch("jfvnamer.cli.typer.prompt", side_effect=["i", "99999", "s"]):
-            result = _prompt_disambiguation("The Batman", search_results)
-        assert result == (99999, "series")
-
-    def test_user_selects_manual_movie_id(self, search_results: list[TVDBSearchResult]) -> None:
-        with patch("jfvnamer.cli.typer.prompt", side_effect=["i", "55555", "m"]):
-            result = _prompt_disambiguation("The Batman", search_results)
-        assert result == (55555, "movie")
-
-    def test_invalid_selection_retries(self, search_results: list[TVDBSearchResult]) -> None:
-        with patch("jfvnamer.cli.typer.prompt", side_effect=["invalid", "0", "99", "1"]):
-            result = _prompt_disambiguation("The Batman", search_results)
-        assert result == (77551, "series")
-
-
-# ---------------------------------------------------------------------------
-# Episode matching: _match_episode
+# Episode matching: match_episode
 # ---------------------------------------------------------------------------
 
 
 class TestMatchEpisode:
     def test_match_by_season_episode(self, parsed_tv: ParsedFile, sample_episodes: list[TVDBEpisode]) -> None:
-        ep = _match_episode(parsed_tv, sample_episodes, forced_season=None)
+        ep = match_episode(parsed_tv, sample_episodes, forced_season=None)
         assert ep is not None
         assert ep.name == "Pilot"
         assert ep.season_number == 1
@@ -298,7 +230,7 @@ class TestMatchEpisode:
             file_extension=".mkv",
             original_filename="Breaking.Bad.2008.01.20.mkv",
         )
-        ep = _match_episode(parsed, sample_episodes, forced_season=None)
+        ep = match_episode(parsed, sample_episodes, forced_season=None)
         assert ep is not None
         assert ep.name == "Pilot"
 
@@ -310,7 +242,7 @@ class TestMatchEpisode:
             file_extension=".mkv",
             original_filename="Breaking Bad - S09E99.mkv",
         )
-        ep = _match_episode(parsed, sample_episodes, forced_season=None)
+        ep = match_episode(parsed, sample_episodes, forced_season=None)
         assert ep is None
 
     def test_forced_season_overrides(self, sample_episodes: list[TVDBEpisode]) -> None:
@@ -321,7 +253,7 @@ class TestMatchEpisode:
             file_extension=".mkv",
             original_filename="Breaking Bad - S05E01.mkv",
         )
-        ep = _match_episode(parsed, sample_episodes, forced_season=1)
+        ep = match_episode(parsed, sample_episodes, forced_season=1)
         assert ep is not None
         assert ep.name == "Pilot"
 
@@ -333,7 +265,7 @@ class TestMatchEpisode:
             file_extension=".mkv",
             original_filename="Show - 001.mkv",
         )
-        ep = _match_episode(parsed, sample_episodes, forced_season=None)
+        ep = match_episode(parsed, sample_episodes, forced_season=None)
         assert ep is not None
         assert ep.episode_number == 1
 

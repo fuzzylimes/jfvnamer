@@ -10,20 +10,16 @@ from typing import Optional
 import typer
 
 from jfvnamer.renamer import (
-    check_conflict,
-    execute_action,
     group_files_by_title,
-    plan_rename,
     scan_video_files,
     write_undo_log,
 )
 from jfvnamer.models import (
     ParsedFile,
-    TVDBEpisode,
-    TVDBSearchResult,
     TVDBSeriesDetails,
     VIDEO_EXTENSIONS,
 )
+from jfvnamer.resolver import display_search_results, run_group_interactive
 from jfvnamer.tvdb import TVDBClient
 
 app = typer.Typer(
@@ -160,9 +156,11 @@ def rename(
     if action:
         cli_overrides.setdefault("general", {})["action"] = action
     if series_root:
-        cli_overrides.setdefault("general", {})["series_root"] = str(series_root)
+        cli_overrides.setdefault("general", {})[
+            "series_root"] = str(series_root)
     if movies_root:
-        cli_overrides.setdefault("general", {})["movies_root"] = str(movies_root)
+        cli_overrides.setdefault("general", {})[
+            "movies_root"] = str(movies_root)
     if verbose:
         cli_overrides.setdefault("general", {})["verbose"] = True
 
@@ -182,7 +180,8 @@ def rename(
     )
 
     try:
-        video_files = scan_video_files(path, recursive=config.general.recursive)
+        video_files = scan_video_files(
+            path, recursive=config.general.recursive)
         if not video_files:
             typer.echo("No video files found.")
             return
@@ -192,7 +191,7 @@ def rename(
         all_results = []
 
         for title, file_group in groups.items():
-            results = _run_group_interactive(
+            results = run_group_interactive(
                 title=title,
                 group=file_group,
                 client=client,
@@ -230,7 +229,8 @@ def rename(
 
 @app.command()
 def search(
-    query: str = typer.Argument(..., help="Search query (series or movie name)."),
+    query: str = typer.Argument(...,
+                                help="Search query (series or movie name)."),
     media_type: Optional[str] = typer.Option(
         None, "--type", "-t", help="Filter by type: series or movie."
     ),
@@ -260,12 +260,7 @@ def search(
         raise typer.Exit(1)
 
     typer.echo(f'Results for "{query}":')
-    for i, r in enumerate(results, 1):
-        label = f"[{r.type.capitalize()}]"
-        year_str = f" ({r.year})" if r.year else ""
-        genre_str = f"  [{', '.join(r.genres[:3])}]" if r.genres else ""
-        typer.echo(
-            f"  {i:>2}. {label:<10} {r.name}{year_str}{genre_str} — TVDB ID: {r.tvdb_id}")
+    display_search_results(results=results)
 
 
 # ---------------------------------------------------------------------------
@@ -354,337 +349,6 @@ def config_show(
 
     cfg = load_config(user_config_path=config_file)
     typer.echo(json.dumps(cfg.model_dump(mode="json"), indent=2))
-
-
-# ---------------------------------------------------------------------------
-# Grouped interactive rename flow
-# ---------------------------------------------------------------------------
-
-
-def _run_group_interactive(
-    title: str,
-    group: list[tuple[Path, ParsedFile]],
-    *,
-    client: TVDBClient,
-    config,
-    no_prompt: bool,
-    forced_series_id: int | None,
-    forced_movie_id: int | None,
-    forced_season: int | None,
-    skip_existing: bool,
-    series_details_cache: dict,
-) -> list:
-    """Process one group of files with the interactive rename flow."""
-    typer.echo(f"\nSearching: {title}")
-
-    # --- Step 1: Determine TVDB selection ---
-    if forced_movie_id is not None:
-        tvdb_id, result_type = forced_movie_id, "movie"
-    elif forced_series_id is not None:
-        tvdb_id, result_type = forced_series_id, "series"
-    else:
-        selection = _search_tvdb_loop(title, client, no_prompt=no_prompt)
-        if selection is None:
-            typer.echo(f"  Skipping group: {title}")
-            return []
-        tvdb_id, result_type = selection
-
-    series_root = Path(config.general.series_root)
-    movies_root = Path(config.general.movies_root)
-
-    # --- Movie path ---
-    if result_type == "movie":
-        movie = client.get_movie_details(tvdb_id)
-        all_actions = []
-        for video_path, parsed in group:
-            all_actions.extend(plan_rename(
-                video_path, parsed, movies_root, config, movie=movie,
-            ))
-        _display_planned_actions(all_actions)
-        if not no_prompt:
-            if not typer.confirm("Confirm these renames?", default=True):
-                return []
-        return _execute_with_conflict_check(all_actions, skip_existing=skip_existing)
-
-    # --- Series path ---
-    season_type = "default"
-
-    while True:
-        if tvdb_id not in series_details_cache:
-            series_details_cache[tvdb_id] = client.get_series_details(tvdb_id)
-        series = series_details_cache[tvdb_id]
-
-        episodes = client.get_episodes(tvdb_id, season_type=season_type)
-
-        all_actions = []
-        for video_path, parsed in group:
-            ep = _match_episode(parsed, episodes, forced_season=forced_season)
-            all_actions.extend(plan_rename(
-                video_path, parsed, series_root, config,
-                series=series, episode=ep,
-            ))
-
-        # --- Step 2: Show planned renames ---
-        _display_planned_actions(all_actions)
-
-        # --- Step 3: Confirm or switch season type ---
-        if no_prompt:
-            break
-
-        choice = typer.prompt(
-            "[c]onfirm, [t]ry different season type, [s]kip group, [q]uit",
-            default="c",
-        ).strip().lower()
-
-        if choice == "q":
-            raise typer.Exit(0)
-        if choice == "s":
-            return []
-        if choice == "c":
-            break
-        if choice == "t":
-            season_type = _prompt_season_type(series)
-        # any other input: re-display and re-prompt
-
-    return _execute_with_conflict_check(all_actions, skip_existing=skip_existing)
-
-
-def _search_tvdb_loop(
-    title: str,
-    client: TVDBClient,
-    *,
-    no_prompt: bool,
-) -> tuple[int, str] | None:
-    """Search TVDB with re-search support. Returns (tvdb_id, type) or None to skip."""
-    query = title
-    while True:
-        results = client.search(query)
-
-        if not results:
-            typer.echo(f'  No results found for "{query}".')
-        else:
-            _display_search_results(results)
-
-        if no_prompt:
-            if results:
-                r = results[0]
-                year_str = f" ({r.year})" if r.year else ""
-                typer.echo(
-                    f"  Auto-selected: [{r.type.capitalize()}] {r.name}{year_str} — TVDB ID: {r.tvdb_id}"
-                )
-                return (r.tvdb_id, r.type)
-            return None
-
-        options = f"[1-{len(results)}, " if results else "["
-        options += "s=search again, i=TVDB ID, k=skip, q=quit]"
-        choice = typer.prompt(f"  Select {options}").strip().lower()
-
-        if choice == "q":
-            raise typer.Exit(0)
-        if choice == "k":
-            return None
-        if choice == "s":
-            query = typer.prompt("  Search query").strip()
-            continue
-        if choice == "i":
-            return _prompt_manual_tvdb_id()
-        try:
-            idx = int(choice)
-            if results and 1 <= idx <= len(results):
-                r = results[idx - 1]
-                return (r.tvdb_id, r.type)
-        except ValueError:
-            pass
-        typer.echo("  Invalid selection, try again.")
-
-
-def _display_search_results(results: list[TVDBSearchResult]) -> None:
-    for i, r in enumerate(results, 1):
-        label = f"[{r.type.capitalize()}]"
-        year_str = f" ({r.year})" if r.year else ""
-        genre_str = f"  [{', '.join(r.genres[:3])}]" if r.genres else ""
-        typer.echo(f"  {i:>2}. {label:<10} {r.name}{year_str}{genre_str} — TVDB ID: {r.tvdb_id}")
-
-
-def _display_planned_actions(actions: list) -> None:
-    """Print planned rename actions grouped by source."""
-    typer.echo("")
-    for action in actions:
-        src = Path(action.source).name
-        dst = action.destination
-        typer.echo(f"  {src}")
-        typer.echo(f"    → {dst}")
-    typer.echo("")
-
-
-def _prompt_season_type(series: TVDBSeriesDetails) -> str:
-    """Let the user pick a season type from the available types."""
-    if not series.season_types:
-        typer.echo("  No alternative season types available.")
-        return "default"
-
-    typer.echo(f"\n  Available season types for {series.name}:")
-    for i, st in enumerate(series.season_types, 1):
-        typer.echo(f"    {i}. {st}")
-
-    while True:
-        choice = typer.prompt(f"  Select [1-{len(series.season_types)}]").strip()
-        try:
-            idx = int(choice)
-            if 1 <= idx <= len(series.season_types):
-                return series.season_types[idx - 1]
-        except ValueError:
-            pass
-        typer.echo("  Invalid selection, try again.")
-
-
-def _execute_with_conflict_check(
-    actions: list,
-    *,
-    skip_existing: bool,
-) -> list:
-    """Check conflicts and execute actions, returning results."""
-    results = []
-    for action in actions:
-        if action.action != "dryrun" and check_conflict(Path(action.destination)):
-            if skip_existing:
-                logger.debug("Skipping (exists): %s", action.destination)
-                continue
-            else:
-                logger.warning("Target already exists, skipping: %s", action.destination)
-                continue
-
-        result = execute_action(action)
-        results.append(result)
-        if result.success:
-            verb = {"move": "Moved", "copy": "Copied", "dryrun": "Would rename"}[result.action]
-            logger.info("%s: %s -> %s", verb, result.source, result.destination)
-        else:
-            logger.error("FAILED: %s -> %s: %s", result.source, result.destination, result.error)
-
-    return results
-
-
-# ---------------------------------------------------------------------------
-# Interactive disambiguation (shared, also used by legacy-style callers)
-# ---------------------------------------------------------------------------
-
-
-def _prompt_disambiguation(
-    title: str,
-    results: list,
-    *,
-    no_prompt: bool = False,
-) -> tuple[int, str] | None:
-    """Present TVDB search results and let the user pick one.
-
-    Returns (tvdb_id, type) or None if the user chose to skip.
-    """
-    if not results:
-        typer.echo(f'No matches found for "{title}".')
-        return None
-
-    if len(results) == 1 and not no_prompt:
-        r = results[0]
-        year_str = f" ({r.year})" if r.year else ""
-        typer.echo(
-            f'Auto-selected: [{r.type.capitalize()}] {r.name}{year_str} — TVDB ID: {r.tvdb_id}')
-        return (r.tvdb_id, r.type)
-
-    if no_prompt:
-        r = results[0]
-        logger.info('Auto-selected first result for "%s": %s (ID: %d)',
-                    title, r.name, r.tvdb_id)
-        return (r.tvdb_id, r.type)
-
-    typer.echo(f'\nMultiple matches found for "{title}":')
-    for i, r in enumerate(results, 1):
-        label = f"[{r.type.capitalize()}]"
-        year_str = f" ({r.year})" if r.year else ""
-        genre_str = f"  [{', '.join(r.genres[:3])}]" if r.genres else ""
-        typer.echo(
-            f"  {i}. {label:<10} {r.name}{year_str}{genre_str} — TVDB ID: {r.tvdb_id}")
-    typer.echo("")
-
-    while True:
-        choice = typer.prompt(
-            f"Select [1-{len(results)}, i=enter TVDB ID manually, s=skip, q=quit]"
-        )
-        choice = choice.strip().lower()
-
-        if choice == "q":
-            raise typer.Exit(0)
-        if choice == "s":
-            return None
-        if choice == "i":
-            return _prompt_manual_tvdb_id()
-        try:
-            idx = int(choice)
-            if 1 <= idx <= len(results):
-                r = results[idx - 1]
-                return (r.tvdb_id, r.type)
-        except ValueError:
-            pass
-        typer.echo("Invalid selection, try again.")
-
-
-def _prompt_manual_tvdb_id() -> tuple[int, str] | None:
-    """Prompt the user for a manual TVDB ID and type."""
-    try:
-        raw_id = typer.prompt("Enter TVDB ID")
-        tvdb_id = int(raw_id.strip())
-    except (ValueError, KeyboardInterrupt):
-        typer.echo("Invalid ID.")
-        return None
-
-    while True:
-        choice = typer.prompt("Is this a [s]eries or [m]ovie?")
-        choice = choice.strip().lower()
-        if choice in ("s", "series"):
-            return (tvdb_id, "series")
-        if choice in ("m", "movie"):
-            return (tvdb_id, "movie")
-        typer.echo("Please enter 's' for series or 'm' for movie.")
-
-
-# ---------------------------------------------------------------------------
-# Episode matching
-# ---------------------------------------------------------------------------
-
-
-def _match_episode(
-    parsed: ParsedFile,
-    episodes: list[TVDBEpisode],
-    *,
-    forced_season: int | None,
-) -> TVDBEpisode | None:
-    """Find the matching TVDB episode from a pre-fetched episode list."""
-    season_num = forced_season if forced_season is not None else parsed.season_number
-    ep_nums = parsed.episode_numbers
-
-    if season_num is not None and ep_nums:
-        for ep in episodes:
-            if ep.season_number == season_num and ep.episode_number == ep_nums[0]:
-                return ep
-
-    if parsed.date is not None:
-        date_str = parsed.date.isoformat()
-        for ep in episodes:
-            if ep.aired == date_str:
-                return ep
-
-    if ep_nums and season_num is None:
-        for ep in episodes:
-            if ep.episode_number == ep_nums[0]:
-                return ep
-
-    logger.warning(
-        "Could not match episode for '%s' (S%s E%s) in TVDB data",
-        parsed.title,
-        season_num,
-        ep_nums,
-    )
-    return None
 
 
 # ---------------------------------------------------------------------------

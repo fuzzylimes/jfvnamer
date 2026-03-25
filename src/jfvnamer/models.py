@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class ParsedFile(BaseModel):
@@ -65,14 +65,6 @@ class AppConfig(BaseModel):
     tvdb: TvdbConfig = Field(default_factory=TvdbConfig)
     naming: NamingConfig = Field(default_factory=NamingConfig)
 
-    @model_validator(mode="after")
-    def _check_api_key_hint(self) -> AppConfig:
-        """Attach a flag indicating whether the API key is missing.
-
-        We don't raise here — the CLI checks this before operations that need TVDB.
-        """
-        return self
-
 
 # ---------------------------------------------------------------------------
 # TVDB API models
@@ -123,9 +115,17 @@ class TVDBMovieDetails(BaseModel):
     runtime: Optional[int] = None
 
 
+class TVDBNameTranslation(BaseModel):
+    """nameTranslation inside of translations in series/{id}/extended?meta=translations&short=true response"""
+
+    name: str
+    language: str
+    isPrimary: Optional[bool] = None
+
 # ---------------------------------------------------------------------------
 # Rename engine models
 # ---------------------------------------------------------------------------
+
 
 VIDEO_EXTENSIONS: frozenset[str] = frozenset(
     {".mkv", ".avi", ".mp4", ".m4v", ".ts", ".wmv", ".flv", ".mov"}

@@ -17,6 +17,7 @@ import httpx
 from jfvnamer.models import (
     TVDBEpisode,
     TVDBMovieDetails,
+    TVDBNameTranslation,
     TVDBSearchResult,
     TVDBSeriesDetails,
 )
@@ -169,6 +170,9 @@ class TVDBClient:
             tvdb_id = item.get("tvdb_id") or item.get("id")
             if tvdb_id is None:
                 continue
+            result_type = item.get("type")
+            if result_type != "movie" and result_type != "series":
+                continue
             language_title = item.get("translations", {}).get(self._language)
 
             # Parse genres (can be list of strings or list of dicts)
@@ -195,10 +199,25 @@ class TVDBClient:
     # Series
     # ------------------------------------------------------------------
 
+    def _pick_translated_name(self, translations: list[TVDBNameTranslation], fallback: str) -> str:
+        """Return the name matching self._language from a nameTranslations list."""
+        for t in translations:
+            if t.language == self._language and t.name:
+                return t.name
+        return fallback
+
+    def _parse_name_translations(self, data: dict) -> list[TVDBNameTranslation]:
+        raw = data.get("translations", {}).get("nameTranslations", [])
+        return [TVDBNameTranslation.model_validate(t) for t in raw]
+
     def get_series_details(self, series_id: int) -> TVDBSeriesDetails:
         """Fetch extended details for a series."""
-        body = self._get(f"/series/{series_id}/extended?short=true")
+        body = self._get(
+            f"/series/{series_id}/extended?meta=translations&short=true")
         data = body.get("data", {})
+
+        titles = self._parse_name_translations(data)
+        name = self._pick_translated_name(titles, data.get("name", "Unknown"))
 
         seen: set[str] = set()
         season_types: list[str] = []
@@ -211,7 +230,7 @@ class TVDBClient:
 
         return TVDBSeriesDetails(
             tvdb_id=series_id,
-            name=data.get("name", "Unknown"),
+            name=name,
             year=data.get("year"),
             status=data.get("status", {}).get("name") if isinstance(
                 data.get("status"), dict) else data.get("status"),
@@ -278,11 +297,14 @@ class TVDBClient:
 
     def get_movie_details(self, movie_id: int) -> TVDBMovieDetails:
         """Fetch extended details for a movie."""
-        body = self._get(f"/movies/{movie_id}/extended?short=true")
+        body = self._get(
+            f"/movies/{movie_id}/extended?meta=translations&short=true")
         data = body.get("data", {})
+        titles = self._parse_name_translations(data)
+        name = self._pick_translated_name(titles, data.get("name", "Unknown"))
         return TVDBMovieDetails(
             tvdb_id=movie_id,
-            name=data.get("name", "Unknown"),
+            name=name,
             year=data.get("year"),
             runtime=data.get("runtime"),
         )
