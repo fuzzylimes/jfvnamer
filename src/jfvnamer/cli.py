@@ -20,7 +20,6 @@ from jfvnamer.models import (
     VIDEO_EXTENSIONS,
 )
 from jfvnamer.resolver import display_search_results, run_group_interactive
-from jfvnamer.tvdb import TVDBClient
 
 app = typer.Typer(
     name="jfvnamer",
@@ -151,6 +150,7 @@ def rename(
 ) -> None:
     """Main rename workflow: parse, look up TVDB, and rename/move/copy files."""
     from jfvnamer.config import MissingApiKeyError, load_config, validate_api_key
+    from jfvnamer.tvdb import TVDBClient
 
     cli_overrides: dict = {}
     if action:
@@ -244,6 +244,7 @@ def search(
 ) -> None:
     """Search TVDB interactively."""
     from jfvnamer.config import MissingApiKeyError, load_config, validate_api_key
+    from jfvnamer.tvdb import TVDBClient
 
     config = load_config(user_config_path=config_file)
     try:
@@ -282,6 +283,7 @@ app.add_typer(cache_app, name="cache")
 @cache_app.command("clear")
 def cache_clear() -> None:
     """Clear all TVDB cached data (token, searches, episodes)."""
+    from jfvnamer.tvdb import TVDBClient
     TVDBClient.clear_cache()
     typer.echo("Cache cleared.")
 

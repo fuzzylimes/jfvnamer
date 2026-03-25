@@ -237,12 +237,14 @@ class TVDBClient:
             seen.add(st_type)
             season_types.append(st_type)
 
+        raw_status = data.get("status")
+        status = raw_status.get("name") if isinstance(raw_status, dict) else raw_status
+
         return TVDBSeriesDetails(
             tvdb_id=series_id,
             name=name,
             year=data.get("year"),
-            status=data.get("status", {}).get("name") if isinstance(
-                data.get("status"), dict) else data.get("status"),
+            status=status,
             season_types=season_types,
         )
 
@@ -337,24 +339,22 @@ class TVDBClient:
         """Persist the search cache to disk."""
         SEARCH_CACHE_PATH.write_text(json.dumps(cache, indent=2))
 
-    def get_cached_search(self, query: str) -> list[dict[str, Any]] | None:
-        """Look up cached search results for a query.
+    def get_cached_search(self, cache_key: str) -> list[dict[str, Any]] | None:
+        """Look up cached search results for a cache key.
 
         Returns the list of search result dicts if cached and not expired,
         else ``None``.
         """
         cache = self.load_search_cache()
-        key = query.lower().strip()
-        entry = cache.get(key)
+        entry = cache.get(cache_key.lower().strip())
         if entry and entry.get("cached_at", 0) + self._cache_ttl > time.time():
             return entry.get("results", [])
         return None
 
-    def cache_search_results(self, query: str, results: list[dict[str, Any]]) -> None:
+    def cache_search_results(self, cache_key: str, results: list[dict[str, Any]]) -> None:
         """Cache search results for future runs."""
         cache = self.load_search_cache()
-        key = query.lower().strip()
-        cache[key] = {
+        cache[cache_key.lower().strip()] = {
             "results": results,
             "cached_at": time.time(),
         }

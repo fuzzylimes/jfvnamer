@@ -12,7 +12,7 @@ import sys
 from importlib.resources import files
 
 try:
-    from importlib.resources.abc import Traversable  # Python 3.12+
+    from importlib.resources.abc import Traversable  # Python 3.11+
 except ImportError:
     # type: ignore[no-redef]  # Python 3.10–3.11
     from importlib.abc import Traversable
