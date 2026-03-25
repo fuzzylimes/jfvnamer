@@ -17,6 +17,7 @@ import httpx
 from jfvnamer.models import (
     TVDBEpisode,
     TVDBMovieDetails,
+    TVDBNameTranslation,
     TVDBSearchResult,
     TVDBSeriesDetails,
 )
@@ -29,22 +30,6 @@ CACHE_DIR = Path.home() / ".cache" / "jfvnamer"
 TOKEN_PATH = CACHE_DIR / "tvdb_token.json"
 SEARCH_CACHE_PATH = CACHE_DIR / "search_cache.json"
 EPISODE_CACHE_PATH = CACHE_DIR / "episode_cache.json"
-
-# Map user-facing ordering names to TVDB season-type path parameters.
-ORDER_MAP: dict[str, str] = {
-    "aired": "default",
-    "dvd": "dvd",
-    "absolute": "absolute",
-}
-
-# Map TVDB API season-type names to user-facing ordering names.
-# "official" and "default" both refer to the standard aired order.
-SEASON_TYPE_MAP: dict[str, str] = {
-    "official": "aired",
-    "default": "aired",
-    "dvd": "dvd",
-    "absolute": "absolute",
-}
 
 
 class TVDBAuthError(Exception):
@@ -174,6 +159,12 @@ class TVDBClient:
             Optional filter — ``"series"`` or ``"movie"``. If ``None``,
             searches across both.
         """
+        cache_key = f"{query}:{media_type}"
+        cached = self.get_cached_search(cache_key)
+        if cached is not None:
+            logger.debug("Using cached search for '%s'", query)
+            return [TVDBSearchResult.model_validate(r) for r in cached]
+
         params: dict[str, str] = {"query": query}
         if media_type:
             params["type"] = media_type
@@ -184,6 +175,9 @@ class TVDBClient:
         for item in body.get("data", []):
             tvdb_id = item.get("tvdb_id") or item.get("id")
             if tvdb_id is None:
+                continue
+            result_type = item.get("type")
+            if result_type != "movie" and result_type != "series":
                 continue
             language_title = item.get("translations", {}).get(self._language)
 
@@ -205,61 +199,77 @@ class TVDBClient:
                     genres=genres,
                 )
             )
+        self.cache_search_results(cache_key, [r.model_dump() for r in results])
         return results
 
     # ------------------------------------------------------------------
     # Series
     # ------------------------------------------------------------------
 
+    def _pick_translated_name(self, translations: list[TVDBNameTranslation], fallback: str) -> str:
+        """Return the name matching self._language from a nameTranslations list."""
+        for t in translations:
+            if t.language == self._language and t.name:
+                return t.name
+        return fallback
+
+    def _parse_name_translations(self, data: dict) -> list[TVDBNameTranslation]:
+        raw = data.get("translations", {}).get("nameTranslations", [])
+        return [TVDBNameTranslation.model_validate(t) for t in raw]
+
     def get_series_details(self, series_id: int) -> TVDBSeriesDetails:
         """Fetch extended details for a series."""
-        body = self._get(f"/series/{series_id}/extended?short=true")
+        body = self._get(
+            f"/series/{series_id}/extended",
+            params={"meta": "translations", "short": "true"},
+        )
         data = body.get("data", {})
+
+        titles = self._parse_name_translations(data)
+        name = self._pick_translated_name(titles, data.get("name", "Unknown"))
 
         seen: set[str] = set()
         season_types: list[str] = []
         for st in data.get("seasonTypes", []):
             st_type = st.get("type")
-            if not st_type:
+            if not st_type or st_type in seen:
                 continue
-            # Normalize to user-facing name, skip unknown types
-            user_facing = SEASON_TYPE_MAP.get(st_type)
-            if user_facing and user_facing not in seen:
-                seen.add(user_facing)
-                season_types.append(user_facing)
+            seen.add(st_type)
+            season_types.append(st_type)
+
+        raw_status = data.get("status")
+        status = raw_status.get("name") if isinstance(raw_status, dict) else raw_status
 
         return TVDBSeriesDetails(
             tvdb_id=series_id,
-            name=data.get("name", "Unknown"),
+            name=name,
             year=data.get("year"),
-            status=data.get("status", {}).get("name") if isinstance(
-                data.get("status"), dict) else data.get("status"),
+            status=status,
             season_types=season_types,
         )
 
     def get_episodes(
         self,
         series_id: int,
-        order: str = "aired",
+        season_type: str = "default",
     ) -> list[TVDBEpisode]:
-        """Fetch all episodes for a series with the given ordering.
+        """Fetch all episodes for a series.
 
         Parameters
         ----------
         series_id:
             TVDB series ID.
-        order:
-            One of ``"aired"``, ``"dvd"``, ``"absolute"``.  Mapped to the
-            TVDB season-type path parameter.
+        season_type:
+            TVDB season-type path parameter (e.g. ``"default"``, ``"dvd"``,
+            ``"absolute"``).  Defaults to ``"default"`` (standard aired order).
         """
         # Check cache first
-        cached = self._load_episode_cache(series_id, order)
+        cached = self._load_episode_cache(series_id, season_type)
         if cached is not None:
             logger.debug(
-                "Using cached episodes for series %d (%s)", series_id, order)
+                "Using cached episodes for series %d (%s)", series_id, season_type)
             return cached
 
-        season_type = ORDER_MAP.get(order, "default")
         episodes: list[TVDBEpisode] = []
         page = 0
 
@@ -289,7 +299,7 @@ class TVDBClient:
             else:
                 break
 
-        self._save_episode_cache(series_id, order, episodes)
+        self._save_episode_cache(series_id, season_type, episodes)
         return episodes
 
     # ------------------------------------------------------------------
@@ -298,11 +308,16 @@ class TVDBClient:
 
     def get_movie_details(self, movie_id: int) -> TVDBMovieDetails:
         """Fetch extended details for a movie."""
-        body = self._get(f"/movies/{movie_id}/extended?short=true")
+        body = self._get(
+            f"/movies/{movie_id}/extended",
+            params={"meta": "translations", "short": "true"},
+        )
         data = body.get("data", {})
+        titles = self._parse_name_translations(data)
+        name = self._pick_translated_name(titles, data.get("name", "Unknown"))
         return TVDBMovieDetails(
             tvdb_id=movie_id,
-            name=data.get("name", "Unknown"),
+            name=name,
             year=data.get("year"),
             runtime=data.get("runtime"),
         )
@@ -324,24 +339,22 @@ class TVDBClient:
         """Persist the search cache to disk."""
         SEARCH_CACHE_PATH.write_text(json.dumps(cache, indent=2))
 
-    def get_cached_search(self, query: str) -> list[dict[str, Any]] | None:
-        """Look up cached search results for a query.
+    def get_cached_search(self, cache_key: str) -> list[dict[str, Any]] | None:
+        """Look up cached search results for a cache key.
 
         Returns the list of search result dicts if cached and not expired,
         else ``None``.
         """
         cache = self.load_search_cache()
-        key = query.lower().strip()
-        entry = cache.get(key)
+        entry = cache.get(cache_key.lower().strip())
         if entry and entry.get("cached_at", 0) + self._cache_ttl > time.time():
             return entry.get("results", [])
         return None
 
-    def cache_search_results(self, query: str, results: list[dict[str, Any]]) -> None:
+    def cache_search_results(self, cache_key: str, results: list[dict[str, Any]]) -> None:
         """Cache search results for future runs."""
         cache = self.load_search_cache()
-        key = query.lower().strip()
-        cache[key] = {
+        cache[cache_key.lower().strip()] = {
             "results": results,
             "cached_at": time.time(),
         }
@@ -351,17 +364,17 @@ class TVDBClient:
     # Caching — episodes
     # ------------------------------------------------------------------
 
-    def _episode_cache_key(self, series_id: int, order: str) -> str:
-        return f"{series_id}:{order}"
+    def _episode_cache_key(self, series_id: int, season_type: str) -> str:
+        return f"{series_id}:{season_type}"
 
-    def _load_episode_cache(self, series_id: int, order: str) -> list[TVDBEpisode] | None:
+    def _load_episode_cache(self, series_id: int, season_type: str) -> list[TVDBEpisode] | None:
         if not EPISODE_CACHE_PATH.exists():
             return None
         try:
             cache = json.loads(EPISODE_CACHE_PATH.read_text())
         except (json.JSONDecodeError, OSError):
             return None
-        key = self._episode_cache_key(series_id, order)
+        key = self._episode_cache_key(series_id, season_type)
         entry = cache.get(key)
         if not entry:
             return None
@@ -369,13 +382,13 @@ class TVDBClient:
             return None
         return [TVDBEpisode.model_validate(ep) for ep in entry.get("episodes", [])]
 
-    def _save_episode_cache(self, series_id: int, order: str, episodes: list[TVDBEpisode]) -> None:
+    def _save_episode_cache(self, series_id: int, season_type: str, episodes: list[TVDBEpisode]) -> None:
         try:
             cache = json.loads(EPISODE_CACHE_PATH.read_text()
                                ) if EPISODE_CACHE_PATH.exists() else {}
         except (json.JSONDecodeError, OSError):
             cache = {}
-        key = self._episode_cache_key(series_id, order)
+        key = self._episode_cache_key(series_id, season_type)
         cache[key] = {
             "episodes": [ep.model_dump() for ep in episodes],
             "cached_at": time.time(),

@@ -7,7 +7,6 @@ verbose = false
 
 [tvdb]
 api_key = ""                # user must provide
-default_order = "aired"     # "aired", "dvd", "absolute"
 cache_ttl_days = 7
 language = "eng"
 
@@ -17,13 +16,9 @@ season_format = "Season {season:02d}"
 episode_format = "{series_name} - S{season:02d}E{episode:02d} - {episode_title}"
 episode_format_no_title = "{series_name} - S{season:02d}E{episode:02d}"
 multi_episode_format = "{series_name} - S{season:02d}E{episode:02d}-E{episode_end:02d} - {episode_title}"
+multi_episode_format_no_title = "{series_name} - S{season:02d}E{episode:02d}-E{episode_end:02d}"
 date_episode_fallback = "{series_name} - {date}"
 movie_folder_format = "{title} ({year})"
 movie_file_format = "{title} ({year})"
 replace_colon_with = " -"
 strip_characters = ["?", "*", "\"", "<", ">", "|"]
-
-[patterns]
-# Users use patterns_prepend / patterns_append in their config
-# to add patterns without overwriting defaults.
-# patterns_replace will replace ALL defaults if set.

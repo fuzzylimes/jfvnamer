@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from jfvnamer.config import (
+    MissingApiKeyError,
     _deep_merge,
-    _merge_patterns,
     generate_user_config_template,
     load_config,
     validate_api_key,
@@ -49,70 +49,16 @@ class TestDeepMerge:
 
 
 # ---------------------------------------------------------------------------
-# _merge_patterns
-# ---------------------------------------------------------------------------
-
-
-class TestMergePatterns:
-    def test_no_directives_returns_defaults(self) -> None:
-        defaults = ["pat1", "pat2"]
-        assert _merge_patterns(defaults, {}) == ["pat1", "pat2"]
-
-    def test_prepend(self) -> None:
-        defaults = ["pat1", "pat2"]
-        section = {"patterns_prepend": ["custom1"]}
-        assert _merge_patterns(defaults, section) == [
-            "custom1", "pat1", "pat2"]
-
-    def test_append(self) -> None:
-        defaults = ["pat1", "pat2"]
-        section = {"patterns_append": ["custom1"]}
-        assert _merge_patterns(defaults, section) == [
-            "pat1", "pat2", "custom1"]
-
-    def test_prepend_and_append(self) -> None:
-        defaults = ["pat1"]
-        section = {"patterns_prepend": ["pre"], "patterns_append": ["post"]}
-        assert _merge_patterns(defaults, section) == ["pre", "pat1", "post"]
-
-    def test_replace(self) -> None:
-        defaults = ["pat1", "pat2"]
-        section = {"patterns_replace": ["only_this"]}
-        assert _merge_patterns(defaults, section) == ["only_this"]
-
-    def test_replace_takes_priority_over_prepend_append(self) -> None:
-        defaults = ["pat1"]
-        section = {
-            "patterns_replace": ["replaced"],
-            "patterns_prepend": ["ignored_pre"],
-            "patterns_append": ["ignored_post"],
-        }
-        assert _merge_patterns(defaults, section) == ["replaced"]
-
-    def test_replace_with_empty_list(self) -> None:
-        defaults = ["pat1", "pat2"]
-        section = {"patterns_replace": []}
-        assert _merge_patterns(defaults, section) == []
-
-    def test_replace_none_is_not_active(self) -> None:
-        defaults = ["pat1"]
-        section = {"patterns_replace": None}
-        assert _merge_patterns(defaults, section) == ["pat1"]
-
-
-# ---------------------------------------------------------------------------
 # load_config
 # ---------------------------------------------------------------------------
 
 
 class TestLoadConfig:
     def test_defaults_only(self) -> None:
-        """Loading with no user config should produce valid defaults."""
         cfg = load_config(user_config_path=Path("/nonexistent/config.toml"))
         assert cfg.general.action == "move"
         assert cfg.general.recursive is True
         assert cfg.tvdb.api_key == ""
-        assert cfg.tvdb.default_order == "aired"
         assert cfg.naming.replace_colon_with == " -"
         assert "?" in cfg.naming.strip_characters
 
@@ -125,7 +71,6 @@ class TestLoadConfig:
         cfg = load_config(user_config_path=user_cfg)
         assert cfg.general.action == "dryrun"
         assert cfg.general.verbose is True
-        # Defaults should still be present for unset fields
         assert cfg.general.recursive is True
         assert cfg.tvdb.api_key == "my-key"
 
@@ -134,7 +79,6 @@ class TestLoadConfig:
         user_cfg.write_text('[naming]\nreplace_colon_with = " — "\n')
         cfg = load_config(user_config_path=user_cfg)
         assert cfg.naming.replace_colon_with == " — "
-        # Other naming defaults intact
         assert cfg.naming.season_format == "Season {season:02d}"
 
     def test_cli_overrides_take_priority(self, tmp_path: Path) -> None:
@@ -150,27 +94,9 @@ class TestLoadConfig:
         cfg = load_config(user_config_path=Path("/does/not/exist.toml"))
         assert isinstance(cfg, AppConfig)
 
-    def test_patterns_prepend_in_user_config(self, tmp_path: Path) -> None:
-        user_cfg = tmp_path / "config.toml"
-        user_cfg.write_text('[patterns]\npatterns_prepend = ["custom_pat"]\n')
-        cfg = load_config(user_config_path=user_cfg)
-        assert cfg.patterns.patterns_prepend == ["custom_pat"]
-
-    def test_patterns_replace_in_user_config(self, tmp_path: Path) -> None:
-        user_cfg = tmp_path / "config.toml"
-        user_cfg.write_text('[patterns]\npatterns_replace = ["only_this"]\n')
-        cfg = load_config(user_config_path=user_cfg)
-        assert cfg.patterns.patterns_replace == ["only_this"]
-
     def test_invalid_action_raises(self, tmp_path: Path) -> None:
         user_cfg = tmp_path / "config.toml"
         user_cfg.write_text('[general]\naction = "invalid_action"\n')
-        with pytest.raises(Exception):
-            load_config(user_config_path=user_cfg)
-
-    def test_invalid_order_raises(self, tmp_path: Path) -> None:
-        user_cfg = tmp_path / "config.toml"
-        user_cfg.write_text('[tvdb]\ndefault_order = "wrong"\n')
         with pytest.raises(Exception):
             load_config(user_config_path=user_cfg)
 
@@ -183,9 +109,8 @@ class TestLoadConfig:
 class TestValidateApiKey:
     def test_empty_key_raises(self) -> None:
         cfg = AppConfig()
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(MissingApiKeyError, match="TVDB API key"):
             validate_api_key(cfg)
-        assert "TVDB API key" in str(exc_info.value)
 
     def test_valid_key_passes(self) -> None:
         cfg = AppConfig(tvdb={"api_key": "some-key"})  # type: ignore[arg-type]
@@ -203,12 +128,19 @@ class TestGenerateTemplate:
         assert "[general]" in template
         assert "[tvdb]" in template
         assert "[naming]" in template
-        assert "[patterns]" in template
         assert "api_key" in template
 
     def test_template_mentions_api_url(self) -> None:
         template = generate_user_config_template()
         assert "thetvdb.com/api-information" in template
+
+    def test_template_has_no_default_order(self) -> None:
+        template = generate_user_config_template()
+        assert "default_order" not in template
+
+    def test_template_has_no_patterns_section(self) -> None:
+        template = generate_user_config_template()
+        assert "[patterns]" not in template
 
 
 # ---------------------------------------------------------------------------

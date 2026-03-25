@@ -15,7 +15,6 @@ from jfvnamer.jellyfin import (
     sanitize_name,
 )
 from jfvnamer.models import (
-    MediaType,
     NamingConfig,
     ParsedFile,
     TVDBEpisode,
@@ -165,13 +164,11 @@ class TestMovieFilename:
 
 def _make_parsed(
     title: str = "Test",
-    media_type: MediaType = MediaType.TV,
     ext: str = ".mkv",
     **kwargs,
 ) -> ParsedFile:
     return ParsedFile(
         title=title,
-        media_type=media_type,
         file_extension=ext,
         original_filename=f"{title}{ext}",
         **kwargs,
@@ -188,15 +185,6 @@ class TestBuildTargetPathTV:
         path = build_target_path(parsed, series=series, episode=episode)
         assert path == "Breaking Bad (2008)/Season 01/Breaking Bad - S01E01 - Pilot.mkv"
 
-    def test_missing_year_uses_parsed(self):
-        parsed = _make_parsed("Show", year=2020, season_number=1, episode_numbers=[1])
-        series = TVDBSeriesDetails(tvdb_id=1, name="Show", year=None)
-        episode = TVDBEpisode(
-            tvdb_id=100, name="Ep", season_number=1, episode_number=1
-        )
-        path = build_target_path(parsed, series=series, episode=episode)
-        assert path == "Show (2020)/Season 01/Show - S01E01 - Ep.mkv"
-
     def test_missing_year_entirely(self):
         parsed = _make_parsed("Show", season_number=1, episode_numbers=[1])
         series = TVDBSeriesDetails(tvdb_id=1, name="Show")
@@ -209,7 +197,6 @@ class TestBuildTargetPathTV:
     def test_no_season_defaults_to_01(self):
         parsed = _make_parsed("Naruto", season_number=None, episode_numbers=[1])
         series = TVDBSeriesDetails(tvdb_id=1, name="Naruto", year="2002")
-        # No episode match — falls through to parsed info
         path = build_target_path(parsed, series=series)
         assert path == "Naruto (2002)/Season 01/Naruto - S01E01.mkv"
 
@@ -231,7 +218,6 @@ class TestBuildTargetPathTV:
             date=datetime.date(2024, 3, 15),
         )
         series = TVDBSeriesDetails(tvdb_id=1, name="The Daily Show", year="1996")
-        # No episode match — date fallback
         path = build_target_path(parsed, series=series)
         assert path == "The Daily Show (1996)/Season 2024/The Daily Show - 2024-03-15.mkv"
 
@@ -257,28 +243,28 @@ class TestBuildTargetPathTV:
 
 class TestBuildTargetPathMovie:
     def test_movie_with_year(self):
-        parsed = _make_parsed("inception", media_type=MediaType.MOVIE, year=2010)
+        parsed = _make_parsed("inception")
         movie = TVDBMovieDetails(tvdb_id=1, name="Inception", year="2010")
         path = build_target_path(parsed, movie=movie)
         assert path == "Inception (2010)/Inception (2010).mkv"
 
     def test_movie_without_year(self):
-        parsed = _make_parsed("my movie", media_type=MediaType.MOVIE)
+        parsed = _make_parsed("my movie")
         movie = TVDBMovieDetails(tvdb_id=1, name="My Movie")
         path = build_target_path(parsed, movie=movie)
         assert path == "My Movie/My Movie.mkv"
 
     def test_movie_colon(self):
-        parsed = _make_parsed("batman", media_type=MediaType.MOVIE)
+        parsed = _make_parsed("batman")
         movie = TVDBMovieDetails(tvdb_id=1, name="Batman: The Movie", year="1966")
         path = build_target_path(parsed, movie=movie)
         assert path == "Batman - The Movie (1966)/Batman - The Movie (1966).mkv"
 
-    def test_movie_year_fallback_to_parsed(self):
-        parsed = _make_parsed("inception", media_type=MediaType.MOVIE, year=2010)
+    def test_movie_no_year_when_tvdb_missing(self):
+        parsed = _make_parsed("inception")
         movie = TVDBMovieDetails(tvdb_id=1, name="Inception", year=None)
         path = build_target_path(parsed, movie=movie)
-        assert path == "Inception (2010)/Inception (2010).mkv"
+        assert path == "Inception/Inception.mkv"
 
 
 # ---------------------------------------------------------------------------

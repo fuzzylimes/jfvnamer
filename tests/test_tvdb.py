@@ -11,7 +11,6 @@ import pytest
 
 from jfvnamer.tvdb import (
     BASE_URL,
-    ORDER_MAP,
     TVDBApiError,
     TVDBAuthError,
     TVDBClient,
@@ -198,7 +197,7 @@ class TestSeries:
         assert details.name == "Breaking Bad"
         assert details.year == "2008"
         assert details.status == "Ended"
-        assert "aired" in details.season_types
+        assert "default" in details.season_types
         assert "dvd" in details.season_types
         assert "absolute" in details.season_types
 
@@ -216,7 +215,7 @@ class TestSeries:
         }
         mock_resp = _mock_response(200, api_data)
         with patch.object(client._http, "get", return_value=mock_resp):
-            episodes = client.get_episodes(81189, order="aired")
+            episodes = client.get_episodes(81189)
 
         assert len(episodes) == 2
         assert episodes[0].name == "Pilot"
@@ -240,7 +239,7 @@ class TestSeries:
         resp0 = _mock_response(200, page0)
         resp1 = _mock_response(200, page1)
         with patch.object(client._http, "get", side_effect=[resp0, resp1]):
-            episodes = client.get_episodes(81189, order="aired")
+            episodes = client.get_episodes(81189)
 
         assert len(episodes) == 2
         assert episodes[0].name == "Ep1"
@@ -256,8 +255,8 @@ class TestSeries:
         }
         mock_resp = _mock_response(200, api_data)
         with patch.object(client._http, "get", return_value=mock_resp) as mock_get:
-            first = client.get_episodes(12345, order="aired")
-            second = client.get_episodes(12345, order="aired")
+            first = client.get_episodes(12345)
+            second = client.get_episodes(12345)
 
         # HTTP should only be called once (for page 0 of the first call)
         assert mock_get.call_count == 1
@@ -341,22 +340,6 @@ class TestCacheManagement:
     def test_clear_cache_missing_files(self, tmp_cache):
         """Should not raise if files don't exist."""
         TVDBClient.clear_cache()
-
-
-# ---------------------------------------------------------------------------
-# Order map tests
-# ---------------------------------------------------------------------------
-
-
-class TestOrderMap:
-    def test_aired_maps_to_default(self):
-        assert ORDER_MAP["aired"] == "default"
-
-    def test_dvd_maps_to_dvd(self):
-        assert ORDER_MAP["dvd"] == "dvd"
-
-    def test_absolute_maps_to_absolute(self):
-        assert ORDER_MAP["absolute"] == "absolute"
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,13 @@ Resolution order (highest priority wins):
 from __future__ import annotations
 
 import sys
+from importlib.resources import files
+
+try:
+    from importlib.resources.abc import Traversable  # Python 3.11+
+except ImportError:
+    # type: ignore[no-redef]  # Python 3.10–3.11
+    from importlib.abc import Traversable
 from pathlib import Path
 from typing import Any
 
@@ -26,8 +33,8 @@ from jfvnamer.models import AppConfig
 # Paths
 # ---------------------------------------------------------------------------
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve(
-).parent.parent.parent / "config" / "default.toml"
+_DEFAULT_CONFIG: Traversable = files(
+    "jfvnamer").joinpath("config/default.toml")
 USER_CONFIG_DIR = Path.home() / ".config" / "jfvnamer"
 USER_CONFIG_PATH = USER_CONFIG_DIR / "config.toml"
 
@@ -37,14 +44,14 @@ USER_CONFIG_PATH = USER_CONFIG_DIR / "config.toml"
 # ---------------------------------------------------------------------------
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
+def _load_toml(path: Path | Traversable) -> dict[str, Any]:
     """Load a TOML file and return its contents as a dict."""
-    with open(path, "rb") as f:
+    with path.open("rb") as f:
         return tomllib.load(f)
 
 
 # ---------------------------------------------------------------------------
-# Deep merge with list-directive support
+# Deep merge
 # ---------------------------------------------------------------------------
 
 
@@ -53,8 +60,6 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
     Scalar values in *override* replace those in *base*.
     Nested dicts are merged recursively.
-    List-merge directives in the ``[patterns]`` section are handled by
-    :func:`_merge_patterns`.
     """
     merged = dict(base)
     for key, value in override.items():
@@ -63,26 +68,6 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         else:
             merged[key] = value
     return merged
-
-
-def _merge_patterns(
-    default_patterns: list[str],
-    patterns_section: dict[str, Any],
-) -> list[str]:
-    """Apply list-merge directives to the default pattern list.
-
-    Supported directives (inside the ``[patterns]`` TOML section):
-    - ``patterns_replace``: wholesale replace the entire list
-    - ``patterns_prepend``: prepend entries before the defaults
-    - ``patterns_append``: append entries after the defaults
-    """
-    if "patterns_replace" in patterns_section and patterns_section["patterns_replace"] is not None:
-        return list(patterns_section["patterns_replace"])
-
-    result = list(default_patterns)
-    prepend = patterns_section.get("patterns_prepend", [])
-    append = patterns_section.get("patterns_append", [])
-    return list(prepend) + result + list(append)
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +92,8 @@ def load_config(
         ``{"general": {"verbose": True}}``).  Applied last (highest priority).
     """
     # 1. Built-in defaults
-    if DEFAULT_CONFIG_PATH.exists():
-        defaults = _load_toml(DEFAULT_CONFIG_PATH)
+    if _DEFAULT_CONFIG.is_file():
+        defaults = _load_toml(_DEFAULT_CONFIG)
     else:
         defaults = {}
 
@@ -148,7 +133,6 @@ def generate_user_config_template() -> str:
 
 [tvdb]
 api_key = ""                  # Required — get yours at https://thetvdb.com/api-information
-# default_order = "aired"     # "aired", "dvd", "absolute"
 # cache_ttl_days = 7
 # language = "eng"
 
@@ -158,25 +142,24 @@ api_key = ""                  # Required — get yours at https://thetvdb.com/ap
 # episode_format = "{series_name} - S{season:02d}E{episode:02d} - {episode_title}"
 # episode_format_no_title = "{series_name} - S{season:02d}E{episode:02d}"
 # multi_episode_format = "{series_name} - S{season:02d}E{episode:02d}-E{episode_end:02d} - {episode_title}"
+# multi_episode_format_no_title = "{series_name} - S{season:02d}E{episode:02d}-E{episode_end:02d}"
 # date_episode_fallback = "{series_name} - {date}"
 # movie_folder_format = "{title} ({year})"
 # movie_file_format = "{title} ({year})"
 # replace_colon_with = " -"
 # strip_characters = ["?", "*", "\\"", "<", ">", "|"]
-
-[patterns]
-# Add custom filename patterns without replacing the built-in ones.
-# patterns_prepend = []       # Checked before built-in patterns
-# patterns_append = []        # Checked after built-in patterns
-# patterns_replace = []       # Replaces ALL built-in patterns (use with care)
 """
 
 
+class MissingApiKeyError(Exception):
+    """Raised when the TVDB API key is not configured."""
+
+
 def validate_api_key(config: AppConfig) -> None:
-    """Raise a helpful error if the TVDB API key is not configured."""
+    """Raise MissingApiKeyError if the TVDB API key is not configured."""
     if not config.tvdb.api_key:
-        raise SystemExit(
-            "Error: TVDB API key is not configured.\n"
+        raise MissingApiKeyError(
+            "TVDB API key is not configured.\n"
             "\n"
             "To use TVDB lookups, set your API key in one of these ways:\n"
             "  1. Add it to ~/.config/jfvnamer/config.toml:\n"

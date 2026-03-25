@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime
 from pathlib import PurePosixPath
-from typing import Optional
 
 from jfvnamer.models import (
     NamingConfig,
@@ -129,10 +128,11 @@ def build_episode_filename(
                 episode_title=title,
             )
         else:
-            # Fall back to no-title format with episode range
-            filename = (
-                f"{clean} - S{season_number:02d}E{episode_numbers[0]:02d}"
-                f"-E{episode_numbers[-1]:02d}"
+            filename = cfg.multi_episode_format_no_title.format(
+                series_name=clean,
+                season=season_number,
+                episode=episode_numbers[0],
+                episode_end=episode_numbers[-1],
             )
     elif episode_title:
         title = sanitize_name(
@@ -259,23 +259,13 @@ def build_target_path(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_year(
-    tvdb_year: str | None,
-    parsed_year: int | None,
-) -> str | int | None:
-    """Pick the best available year: TVDB first, then parsed, then None."""
-    if tvdb_year:
-        return tvdb_year
-    return parsed_year
-
-
 def _build_tv_path(
     parsed: ParsedFile,
     series: TVDBSeriesDetails,
     episode: TVDBEpisode | None,
     naming: NamingConfig | None,
 ) -> str:
-    year = _resolve_year(series.year, parsed.year)
+    year = series.year
     series_folder = build_series_folder_name(series.name, year=year, naming=naming)
 
     if episode is not None:
@@ -318,7 +308,7 @@ def _build_movie_path(
     movie: TVDBMovieDetails,
     naming: NamingConfig | None,
 ) -> str:
-    year = _resolve_year(movie.year, parsed.year)
+    year = movie.year
     folder = build_movie_folder_name(movie.name, year=year, naming=naming)
     filename = build_movie_filename(
         movie.name, parsed.file_extension, year=year, naming=naming
