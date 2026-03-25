@@ -1,7 +1,7 @@
 """Filename parsing engine using regex patterns.
 
 Ported from tvnamer's battle-tested filename patterns, extended with
-movie detection and quality/source extraction.
+fansub tag preprocessing for anime files.
 """
 
 from __future__ import annotations
@@ -11,31 +11,85 @@ import os
 import re
 from typing import Optional
 
-from jfvnamer.models import MediaType, ParsedFile
+from jfvnamer.models import ParsedFile
 
-# Quality tags recognized in filenames
-QUALITY_PATTERNS: list[str] = [
-    r"2160p", r"1080p", r"720p", r"480p", r"576p",
-    r"4[Kk]", r"UHD",
-]
 
-# Source tags recognized in filenames
-SOURCE_PATTERNS: list[str] = [
-    r"[Bb][Ll][Uu]-?[Rr][Aa][Yy]", r"[Bb][Dd][Rr][Ii][Pp]",
-    r"[Dd][Vv][Dd][Rr][Ii][Pp]", r"[Dd][Vv][Dd]",
-    r"[Hh][Dd][Tt][Vv]", r"[Ww][Ee][Bb]-?[Dd][Ll]",
-    r"[Ww][Ee][Bb][Rr][Ii][Pp]", r"[Ww][Ee][Bb]",
-    r"[Hh][Dd][Rr][Ii][Pp]",
-    r"[Rr]emastered",
-]
+# ---------------------------------------------------------------------------
+# Fansub tag preprocessing
+# ---------------------------------------------------------------------------
 
-QUALITY_RE = re.compile(r"(?:^|[\.\-_ ])(" + "|".join(QUALITY_PATTERNS) + r")(?:[\.\-_ ]|$)", re.IGNORECASE)
-SOURCE_RE = re.compile(r"(?:^|[\.\-_ ])(" + "|".join(SOURCE_PATTERNS) + r")(?:[\.\-_ ]|$)", re.IGNORECASE)
+# Technical bracket tags that should be stripped
+_TECH_BRACKET_RE = re.compile(
+    r"\[(?:"
+    r"[Hh]\.?2(?:64|65)|HEVC|AVC"
+    r"|[Xx]vi[Dd]|[Xx]2(?:64|65)"
+    r"|[Aa][Aa][Cc]2?|[Aa][Cc]3|[Mm][Pp]3|[Ff][Ll][Aa][Cc]|[Dd][Tt][Ss]"
+    r"|\d{3,4}[xX]\d{3,4}"
+    r"|[0-9]{3,4}[pP]"
+    r")[^\]]*\]"
+)
+
+# Technical paren tags that should be stripped: (720p x264 AAC), (H264.AC3)
+_TECH_PAREN_RE = re.compile(
+    r"\((?:[0-9]+[pP]|[Hh]\.?2(?:64|65)|[Xx]vi[Dd]|[Xx]2(?:64|65)|HEVC|AVC)[^)]*\)",
+    re.IGNORECASE,
+)
+
+# Trailing format-only tokens after separators
+_TRAILING_FORMAT_RE = re.compile(
+    r"(?:[._\- ]+(?:"
+    r"DVD|BDRip|BluRay|Blu[\-.]Ray|HDTV|WEB[\-.]DL|WEBRip"
+    r"|[Hh]\.?2(?:64|65)|HEVC|AVC|[Xx]2(?:64|65)|[Xx]vi[Dd]"
+    r"|[Aa][Aa][Cc]2?|[Aa][Cc]3|[Mm][Pp]3|[Ff][Ll][Aa][Cc]|[Dd][Tt][Ss]"
+    r"|[0-9]+[pP]|UHD|HDR"
+    r"))+[._\- ]*$",
+    re.IGNORECASE,
+)
+
+# Episode special names
+_SPECIAL_EPISODE_NAMES = ("special", "ova", "oav")
+
+
+def _preprocess_fansub(name: str) -> str:
+    """Strip fansub noise from a filename stem before pattern matching.
+
+    Strips in order:
+    1. All leading [group] tags (e.g. [ANIME-PLUS.COM]_[B2E])
+    2. 8-character hex CRC hashes (e.g. [7D56A41E])
+    3. Technical bracket tags ([H.264], [XviD], [720p], [1280x720])
+    4. Technical paren tags ((720p x264 AAC), (H264.AC3))
+    5. Remaining non-numeric bracket tags ([KAA], etc.)
+    6. Trailing format-only tokens (DVD, BDRip, x264, etc.)
+    """
+    s = name
+
+    # Step 1: Strip all leading [group] tags, optionally separated by _, ., or space
+    s = re.sub(r"^(?:\[[^\]]*\][_. ]?)+", "", s).lstrip("._- ")
+
+    # Step 2: Strip 8-character hex/alphanumeric CRC hashes anywhere
+    s = re.sub(r"\[[0-9A-Fa-f]{8}\]", "", s)
+
+    # Step 3: Strip known technical bracket tags
+    s = _TECH_BRACKET_RE.sub("", s)
+
+    # Step 4: Strip technical paren tags
+    s = _TECH_PAREN_RE.sub("", s)
+
+    # Step 5: Strip remaining non-numeric bracket tags
+    # Keep [01], [01.09], [123] (pure digit or digit.digit) — these are episode refs
+    s = re.sub(r"\[(?!\d+(?:\.\d+)?\])[^\]]*\]", "", s)
+
+    # Step 6: Strip trailing format-only tokens (apply repeatedly until stable)
+    prev = None
+    while prev != s:
+        prev = s
+        s = _TRAILING_FORMAT_RE.sub("", s)
+
+    return s.strip("._- ")
 
 
 # ---------------------------------------------------------------------------
 # TV patterns — tried in order, first match wins.
-# Ported from tvnamer with adaptations for named groups we use.
 # ---------------------------------------------------------------------------
 
 TV_PATTERNS: list[tuple[str, re.Pattern[str]]] = []
@@ -188,9 +242,7 @@ _add_tv(
     """,
 )
 
-# Standard SxxExx — the most common TV pattern
-# Breaking Bad - S01E01 - Pilot
-# breaking.bad.s01e01.pilot.720p.bluray
+# Standard SxxExx
 _add_tv(
     "standard_se",
     r"""
@@ -259,7 +311,7 @@ _add_tv(
     """,
 )
 
-# foo.s0101 (requires S prefix to avoid false positives on years/absolute numbers)
+# foo.s0101
 _add_tv(
     "bare_se_4digit",
     r"""
@@ -295,7 +347,7 @@ _add_tv(
     """,
 )
 
-# foo - [012]  (episode in brackets)
+# foo - [012]
 _add_tv(
     "bracket_episode",
     r"""
@@ -307,7 +359,7 @@ _add_tv(
     """,
 )
 
-# show.name.e123 (no season)
+# show.name.e123
 _add_tv(
     "bare_e",
     r"""
@@ -318,7 +370,7 @@ _add_tv(
     """,
 )
 
-# foo - [01.09]  (season.episode in brackets)
+# foo - [01.09]
 _add_tv(
     "bracket_season_dot_ep",
     r"""
@@ -330,6 +382,21 @@ _add_tv(
     (?P<episodenumber>[0-9]+?)
     \]
     [ ._\-]?
+    [^/]*$
+    """,
+)
+
+# Bare dash range: Show - 01-03 (fansub multi-ep after preprocessing strips group/crc tags)
+_add_tv(
+    "bare_dash_range",
+    r"""
+    ^(?P<seriesname>.+?)
+    [ ._\-]+
+    (?!(?:19|20)\d{2}(?:[._ \-]|$))   # reject year-like 4-digit numbers
+    (?P<episodenumberstart>[0-9]{1,4})
+    [-]
+    (?P<episodenumberend>[0-9]{1,4})
+    (?:[._ \-]|$)
     [^/]*$
     """,
 )
@@ -349,40 +416,6 @@ _add_tv(
 
 
 # ---------------------------------------------------------------------------
-# Movie patterns — checked after all TV patterns fail
-# ---------------------------------------------------------------------------
-
-# Movie with year in parens: Inception (2010).mkv
-MOVIE_YEAR_PAREN = re.compile(
-    r"""
-    ^(?P<title>.+?)
-    \s*\((?P<year>\d{4})\)
-    (?P<rest>[^/]*)$
-    """,
-    re.VERBOSE,
-)
-
-# Movie with year separated by dots/dashes: inception.2010.1080p.bluray.mkv
-MOVIE_YEAR_DOT = re.compile(
-    r"""
-    ^(?P<title>.+?)
-    [.\-_ ](?P<year>(?:19|20)\d{2})
-    [.\-_ ](?P<rest>[^/]*)$
-    """,
-    re.VERBOSE,
-)
-
-# Movie with no year: My Movie.mkv (fallback — only used if nothing else matched)
-MOVIE_BARE = re.compile(
-    r"""
-    ^(?P<title>.+?)
-    (?P<rest>)$
-    """,
-    re.VERBOSE,
-)
-
-
-# ---------------------------------------------------------------------------
 # Name cleanup utilities
 # ---------------------------------------------------------------------------
 
@@ -391,29 +424,23 @@ def _clean_name(name: str) -> str:
     strip trailing dashes and whitespace."""
     if not name:
         return name
-    # Replace dots and underscores with spaces
     cleaned = re.sub(r"[._]", " ", name)
-    # Collapse multiple spaces
     cleaned = re.sub(r"\s+", " ", cleaned)
-    # Strip trailing dashes and whitespace
     cleaned = cleaned.strip(" -")
     return cleaned
-
-
-def _extract_quality(filename: str) -> Optional[str]:
-    m = QUALITY_RE.search(filename)
-    return m.group(1) if m else None
-
-
-def _extract_source(filename: str) -> Optional[str]:
-    m = SOURCE_RE.search(filename)
-    return m.group(1).lower().replace("-", "") if m else None
 
 
 def _strip_extension(filename: str) -> tuple[str, str]:
     """Return (name_without_ext, extension_with_dot)."""
     root, ext = os.path.splitext(filename)
     return root, ext.lower()
+
+
+def _clean_episode_name(name: str) -> Optional[str]:
+    """Strip leftover technical tokens from a captured episode name."""
+    stripped = _TRAILING_FORMAT_RE.sub("", name)
+    stripped = re.sub(r"[.\-_ ]+", " ", stripped).strip(" -")
+    return stripped if stripped else None
 
 
 # ---------------------------------------------------------------------------
@@ -423,18 +450,18 @@ def _strip_extension(filename: str) -> tuple[str, str]:
 def parse_filename(filename: str) -> ParsedFile:
     """Parse a video filename and return structured metadata.
 
-    Tries TV patterns first (most specific to least specific), then falls
-    back to movie patterns. If nothing matches, returns media_type=unknown.
+    Applies fansub preprocessing first, then tries TV episode patterns.
+    If no pattern matches, returns a ParsedFile with just the cleaned title.
     """
     basename = os.path.basename(filename)
     name_no_ext, ext = _strip_extension(basename)
 
-    quality = _extract_quality(name_no_ext)
-    source = _extract_source(name_no_ext)
+    # Preprocess: strip fansub noise before pattern matching
+    preprocessed = _preprocess_fansub(name_no_ext)
 
     # --- Try TV patterns ---
-    for pattern_name, pattern in TV_PATTERNS:
-        m = pattern.match(name_no_ext)
+    for _, pattern in TV_PATTERNS:
+        m = pattern.match(preprocessed)
         if not m:
             continue
 
@@ -449,18 +476,14 @@ def parse_filename(filename: str) -> ParsedFile:
                     int(groups["day"]),
                 )
             except ValueError:
-                continue  # Invalid date, try next pattern
+                continue
 
             return ParsedFile(
                 title=_clean_name(groups.get("seriesname", "") or ""),
-                media_type=MediaType.TV,
                 season_number=None,
                 episode_numbers=None,
                 episode_name=None,
-                year=int(groups["year"]),
                 date=air_date,
-                quality=quality,
-                source=source,
                 file_extension=ext,
                 original_filename=basename,
             )
@@ -474,14 +497,10 @@ def parse_filename(filename: str) -> ParsedFile:
 
             return ParsedFile(
                 title=_clean_name(groups.get("seriesname", "") or ""),
-                media_type=MediaType.TV,
                 season_number=season,
                 episode_numbers=episodes,
                 episode_name=None,
-                year=None,
                 date=None,
-                quality=quality,
-                source=source,
                 file_extension=ext,
                 original_filename=basename,
             )
@@ -495,61 +514,30 @@ def parse_filename(filename: str) -> ParsedFile:
 
             return ParsedFile(
                 title=_clean_name(groups.get("seriesname", "") or ""),
-                media_type=MediaType.TV,
                 season_number=season,
                 episode_numbers=[ep_num],
                 episode_name=ep_name,
-                year=None,
                 date=None,
-                quality=quality,
-                source=source,
                 file_extension=ext,
                 original_filename=basename,
             )
 
-    # --- Try movie patterns ---
-    # Movie with year in parentheses
-    m = MOVIE_YEAR_PAREN.match(name_no_ext)
-    if m:
-        return ParsedFile(
-            title=_clean_name(m.group("title")),
-            media_type=MediaType.MOVIE,
-            year=int(m.group("year")),
-            quality=quality,
-            source=source,
-            file_extension=ext,
-            original_filename=basename,
-        )
+    # --- No TV pattern matched — check for Special/OVA/OAV ---
+    cleaned = _clean_name(preprocessed)
+    cleaned_lower = cleaned.lower()
+    for special in _SPECIAL_EPISODE_NAMES:
+        if cleaned_lower == special or cleaned_lower.endswith(" " + special):
+            title_part = cleaned[: -len(special)].strip(" -")
+            return ParsedFile(
+                title=title_part or cleaned,
+                episode_name=cleaned[-len(special):].capitalize(),
+                file_extension=ext,
+                original_filename=basename,
+            )
 
-    # Movie with year in dots/dashes
-    m = MOVIE_YEAR_DOT.match(name_no_ext)
-    if m:
-        return ParsedFile(
-            title=_clean_name(m.group("title")),
-            media_type=MediaType.MOVIE,
-            year=int(m.group("year")),
-            quality=quality,
-            source=source,
-            file_extension=ext,
-            original_filename=basename,
-        )
-
-    # Bare filename — unknown (could be movie or TV, can't tell without TVDB)
+    # --- Fallback: return cleaned title with no episode info ---
     return ParsedFile(
-        title=_clean_name(name_no_ext),
-        media_type=MediaType.UNKNOWN,
-        quality=quality,
-        source=source,
+        title=cleaned,
         file_extension=ext,
         original_filename=basename,
     )
-
-
-def _clean_episode_name(name: str) -> Optional[str]:
-    """Strip quality/source tags from an episode name. Return None if nothing remains."""
-    stripped = name
-    for pat in QUALITY_PATTERNS + SOURCE_PATTERNS:
-        stripped = re.sub(pat, "", stripped, flags=re.IGNORECASE)
-    # Clean up leftover separators and whitespace
-    stripped = re.sub(r"[.\-_ ]+", " ", stripped).strip(" -")
-    return stripped if stripped else None

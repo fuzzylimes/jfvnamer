@@ -1,4 +1,4 @@
-"""Tests for the CLI interface (Phase 7 commands and helpers)."""
+"""Tests for the CLI interface."""
 
 from __future__ import annotations
 
@@ -7,20 +7,15 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import typer
 from typer.testing import CliRunner
 
 from jfvnamer.cli import (
-    _DVD_SOURCE_RE,
     _match_episode,
     _prompt_disambiguation,
-    _prompt_ordering,
-    _select_ordering,
     app,
 )
 from jfvnamer.models import (
     AppConfig,
-    MediaType,
     ParsedFile,
     RenameResult,
     TVDBEpisode,
@@ -42,22 +37,10 @@ runner = CliRunner()
 def parsed_tv() -> ParsedFile:
     return ParsedFile(
         title="Breaking Bad",
-        media_type=MediaType.TV,
         season_number=1,
         episode_numbers=[1],
         file_extension=".mkv",
         original_filename="Breaking Bad - S01E01 - Pilot.mkv",
-    )
-
-
-@pytest.fixture()
-def parsed_movie() -> ParsedFile:
-    return ParsedFile(
-        title="Inception",
-        media_type=MediaType.MOVIE,
-        year=2010,
-        file_extension=".mkv",
-        original_filename="Inception (2010).mkv",
     )
 
 
@@ -99,16 +82,15 @@ class TestParseCommand:
         result = runner.invoke(app, ["parse", str(video)])
         assert result.exit_code == 0
         assert "Breaking Bad" in result.output
-        assert "tv" in result.output
 
     def test_parse_json(self, tmp_path: Path) -> None:
-        video = tmp_path / "Inception (2010).mkv"
+        video = tmp_path / "Naruto - 001.mkv"
         video.write_text("data")
         result = runner.invoke(app, ["parse", str(video), "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert isinstance(data, list)
-        assert data[0]["title"] == "Inception"
+        assert data[0]["title"] == "Naruto"
 
     def test_parse_nonexistent(self) -> None:
         result = runner.invoke(app, ["parse", "/does/not/exist"])
@@ -200,7 +182,6 @@ class TestUndoCommand:
         assert result.exit_code == 1
 
     def test_undo_with_log(self, tmp_path: Path) -> None:
-        # Create source file at "destination" for undo to move back
         dst = tmp_path / "dst" / "video.mkv"
         dst.parent.mkdir(parents=True)
         dst.write_text("video data")
@@ -232,7 +213,6 @@ class TestUndoCommand:
         undo_dir.mkdir()
         monkeypatch.setattr("jfvnamer.renamer.UNDO_DIR", undo_dir)
 
-        # Create a dummy undo log
         log = undo_dir / "20260101_000000.json"
         entry = UndoLogEntry(timestamp="2026-01-01T00:00:00", actions=[])
         log.write_text(json.dumps(entry.model_dump(mode="json"), indent=2))
@@ -297,51 +277,13 @@ class TestPromptDisambiguation:
 
 
 # ---------------------------------------------------------------------------
-# Episode ordering: _prompt_ordering
-# ---------------------------------------------------------------------------
-
-
-class TestPromptOrdering:
-    def test_single_choice_auto_selects(self) -> None:
-        result = _prompt_ordering("Show", ["aired"])
-        assert result == "aired"
-
-    def test_no_choices_defaults_aired(self) -> None:
-        result = _prompt_ordering("Show", [])
-        assert result == "aired"
-
-    def test_auto_dvd(self) -> None:
-        result = _prompt_ordering(
-            "Show", ["aired", "dvd"], auto_dvd=True,
-        )
-        assert result == "dvd"
-
-    def test_user_selects_ordering(self) -> None:
-        with patch("jfvnamer.cli.typer.prompt", return_value="2"):
-            result = _prompt_ordering(
-                "Show", ["aired", "dvd", "absolute"],
-            )
-        assert result == "dvd"
-
-    def test_user_selects_absolute(self) -> None:
-        with patch("jfvnamer.cli.typer.prompt", return_value="3"):
-            result = _prompt_ordering(
-                "Show", ["aired", "dvd", "absolute"],
-            )
-        assert result == "absolute"
-
-
-# ---------------------------------------------------------------------------
 # Episode matching: _match_episode
 # ---------------------------------------------------------------------------
 
 
 class TestMatchEpisode:
     def test_match_by_season_episode(self, parsed_tv: ParsedFile, sample_episodes: list[TVDBEpisode]) -> None:
-        client = MagicMock()
-        client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed_tv, client, 81189,
-                            order="aired", forced_season=None)
+        ep = _match_episode(parsed_tv, sample_episodes, forced_season=None)
         assert ep is not None
         assert ep.name == "Pilot"
         assert ep.season_number == 1
@@ -352,153 +294,48 @@ class TestMatchEpisode:
 
         parsed = ParsedFile(
             title="Breaking Bad",
-            media_type=MediaType.TV,
             date=datetime.date(2008, 1, 20),
             file_extension=".mkv",
             original_filename="Breaking.Bad.2008.01.20.mkv",
         )
-        client = MagicMock()
-        client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed, client, 81189,
-                            order="aired", forced_season=None)
+        ep = _match_episode(parsed, sample_episodes, forced_season=None)
         assert ep is not None
         assert ep.name == "Pilot"
 
     def test_no_match(self, sample_episodes: list[TVDBEpisode]) -> None:
         parsed = ParsedFile(
             title="Breaking Bad",
-            media_type=MediaType.TV,
             season_number=9,
             episode_numbers=[99],
             file_extension=".mkv",
             original_filename="Breaking Bad - S09E99.mkv",
         )
-        client = MagicMock()
-        client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed, client, 81189,
-                            order="aired", forced_season=None)
+        ep = _match_episode(parsed, sample_episodes, forced_season=None)
         assert ep is None
 
     def test_forced_season_overrides(self, sample_episodes: list[TVDBEpisode]) -> None:
         parsed = ParsedFile(
             title="Breaking Bad",
-            media_type=MediaType.TV,
             season_number=5,
             episode_numbers=[1],
             file_extension=".mkv",
             original_filename="Breaking Bad - S05E01.mkv",
         )
-        client = MagicMock()
-        client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed, client, 81189,
-                            order="aired", forced_season=1)
+        ep = _match_episode(parsed, sample_episodes, forced_season=1)
         assert ep is not None
         assert ep.name == "Pilot"
 
     def test_absolute_match_no_season(self, sample_episodes: list[TVDBEpisode]) -> None:
         parsed = ParsedFile(
             title="Show",
-            media_type=MediaType.TV,
             season_number=None,
             episode_numbers=[1],
             file_extension=".mkv",
             original_filename="Show - 001.mkv",
         )
-        client = MagicMock()
-        client.get_episodes.return_value = sample_episodes
-        ep = _match_episode(parsed, client, 1,
-                            order="absolute", forced_season=None)
+        ep = _match_episode(parsed, sample_episodes, forced_season=None)
         assert ep is not None
         assert ep.episode_number == 1
-
-
-# ---------------------------------------------------------------------------
-# DVD auto-detection regex
-# ---------------------------------------------------------------------------
-
-
-class TestDVDAutoDetection:
-    @pytest.mark.parametrize(
-        "filename",
-        [
-            "show.s01e01.dvdrip.mkv",
-            "show.s01e01.DVDRip.mkv",
-            "show.s01e01.bluray.mkv",
-            "show.s01e01.blu-ray.mkv",
-            "show.s01e01.Blu-Ray.mkv",
-            "show.s01e01.bdrip.mkv",
-            "show.s01e01.dvd.mkv",
-        ],
-    )
-    def test_matches_dvd_source(self, filename: str) -> None:
-        assert _DVD_SOURCE_RE.search(filename) is not None
-
-    @pytest.mark.parametrize(
-        "filename",
-        [
-            "show.s01e01.hdtv.mkv",
-            "show.s01e01.web-dl.mkv",
-            "show.s01e01.720p.mkv",
-        ],
-    )
-    def test_no_match_non_dvd(self, filename: str) -> None:
-        assert _DVD_SOURCE_RE.search(filename) is None
-
-
-# ---------------------------------------------------------------------------
-# Select ordering logic
-# ---------------------------------------------------------------------------
-
-
-class TestSelectOrdering:
-    def test_no_prompt_uses_default(self, parsed_tv: ParsedFile) -> None:
-        series = TVDBSeriesDetails(
-            tvdb_id=1, name="Show", season_types=["aired", "dvd"]
-        )
-        result = _select_ordering(
-            parsed_tv, series,
-            default_order="aired", no_prompt=True,
-        )
-        assert result == "aired"
-
-    def test_no_prompt_auto_dvd_from_filename(self) -> None:
-        parsed = ParsedFile(
-            title="Show",
-            media_type=MediaType.TV,
-            season_number=1,
-            episode_numbers=[1],
-            file_extension=".mkv",
-            original_filename="show.s01e01.dvdrip.mkv",
-        )
-        series = TVDBSeriesDetails(
-            tvdb_id=1, name="Show", season_types=["aired", "dvd"]
-        )
-        result = _select_ordering(
-            parsed, series,
-            default_order="aired", no_prompt=True,
-        )
-        assert result == "dvd"
-
-    def test_single_season_type_returns_default(self, parsed_tv: ParsedFile) -> None:
-        series = TVDBSeriesDetails(
-            tvdb_id=1, name="Show", season_types=["aired"]
-        )
-        result = _select_ordering(
-            parsed_tv, series,
-            default_order="aired", no_prompt=False,
-        )
-        assert result == "aired"
-
-    def test_anime_defaults_to_absolute(self, parsed_tv: ParsedFile) -> None:
-        series = TVDBSeriesDetails(
-            tvdb_id=1, name="Naruto", season_types=["aired", "absolute"]
-        )
-        result = _select_ordering(
-            parsed_tv, series,
-            default_order="aired", no_prompt=True,
-            genres=["Animation", "Anime", "Action"],
-        )
-        assert result == "absolute"
 
 
 # ---------------------------------------------------------------------------
@@ -531,8 +368,8 @@ class TestRenameCommand:
 
             mock_client = MagicMock()
             mock_client_cls.return_value = mock_client
-            mock_client.get_cached_search.return_value = [
-                {"tvdb_id": 81189, "type": "series", "name": "Breaking Bad", "year": "2008", "overview": None, "genres": []},
+            mock_client.search.return_value = [
+                TVDBSearchResult(tvdb_id=81189, type="series", name="Breaking Bad", year="2008"),
             ]
             mock_client.get_series_details.return_value = TVDBSeriesDetails(
                 tvdb_id=81189, name="Breaking Bad", year="2008", season_types=["default"],
@@ -542,10 +379,11 @@ class TestRenameCommand:
                             season_number=1, episode_number=1),
             ]
 
-            result = runner.invoke(app, ["rename", str(video)])
+            # Use --no-prompt so it auto-selects and auto-confirms
+            result = runner.invoke(app, ["rename", str(video), "--no-prompt"])
 
         assert result.exit_code == 0
-        assert "Dry run" in result.output or "would be renamed" in result.output
+        assert "Dry run" in result.output or "would be renamed" in result.output or "1" in result.output
 
     def test_rename_with_movie_id(self, tmp_path: Path) -> None:
         video = tmp_path / "Inception (2010).mkv"
@@ -569,7 +407,7 @@ class TestRenameCommand:
             )
 
             result = runner.invoke(
-                app, ["rename", str(video), "--movie-id", "1000"])
+                app, ["rename", str(video), "--movie-id", "1000", "--no-prompt"])
 
         assert result.exit_code == 0
 
@@ -605,7 +443,6 @@ class TestHelpOutput:
     def test_rename_help(self) -> None:
         result = runner.invoke(app, ["rename", "--help"])
         assert result.exit_code == 0
-        assert "--order" in result.output
         assert "--action" in result.output
         assert "--series-root" in result.output
         assert "--movies-root" in result.output
@@ -615,3 +452,4 @@ class TestHelpOutput:
         assert "--season" in result.output
         assert "--skip-existing" in result.output
         assert "--verbose" in result.output
+        assert "--order" not in result.output

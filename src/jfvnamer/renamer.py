@@ -1,8 +1,7 @@
 """Path construction and rename/move/copy logic.
 
-Wires together: file scanning -> parsing -> TVDB lookup -> Jellyfin naming
--> filesystem operations. The TVDB lookup step is abstracted via a callback
-so the CLI layer can provide interactive disambiguation (Phase 7).
+Wires together: file scanning -> parsing -> grouping -> Jellyfin naming
+-> filesystem operations. Interactive TVDB resolution lives in the CLI layer.
 """
 
 from __future__ import annotations
@@ -10,19 +9,14 @@ from __future__ import annotations
 import datetime
 import json
 import logging
-import os
 import shutil
 from pathlib import Path
-
-import click
-from typing import Any, Callable, Optional
 
 from jfvnamer.jellyfin import build_target_path
 from jfvnamer.models import (
     SUBTITLE_EXTENSIONS,
     VIDEO_EXTENSIONS,
     AppConfig,
-    MediaType,
     ParsedFile,
     RenameAction,
     RenameResult,
@@ -36,14 +30,6 @@ from jfvnamer.parser import parse_filename
 logger = logging.getLogger(__name__)
 
 UNDO_DIR = Path.home() / ".local" / "share" / "jfvnamer" / "undo"
-
-# Type alias for the TVDB resolution callback.
-# Given a ParsedFile, the callback returns either:
-#   ("series", TVDBSeriesDetails, TVDBEpisode | None)  for TV
-#   ("movie", TVDBMovieDetails, None)                   for movies
-#   None  if the user chose to skip
-TVDBResolveResult = tuple[str, TVDBSeriesDetails | TVDBMovieDetails, TVDBEpisode | None]
-TVDBResolver = Callable[[ParsedFile], Optional[TVDBResolveResult]]
 
 
 # ---------------------------------------------------------------------------
@@ -73,18 +59,35 @@ def scan_video_files(path: Path, *, recursive: bool = True) -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
+# Grouping
+# ---------------------------------------------------------------------------
+
+
+def group_files_by_title(
+    files: list[Path],
+) -> dict[str, list[tuple[Path, ParsedFile]]]:
+    """Parse *files* and group them by their parsed title.
+
+    Returns an ordered dict mapping title → list of (path, parsed) pairs,
+    preserving the order in which each title is first encountered.
+    """
+    groups: dict[str, list[tuple[Path, ParsedFile]]] = {}
+    for path in files:
+        parsed = parse_filename(path.name)
+        title = parsed.title
+        if title not in groups:
+            groups[title] = []
+        groups[title].append((path, parsed))
+    return groups
+
+
+# ---------------------------------------------------------------------------
 # Subtitle companion detection
 # ---------------------------------------------------------------------------
 
 
 def find_subtitle_companions(video_path: Path) -> list[Path]:
-    """Find subtitle files in the same directory that share the video's stem.
-
-    Matches files like:
-      - ``video.srt``
-      - ``video.en.srt``  (language tag preserved)
-      - ``video.en.forced.srt``
-    """
+    """Find subtitle files in the same directory that share the video's stem."""
     stem = video_path.stem
     parent = video_path.parent
     companions: list[Path] = []
@@ -92,15 +95,12 @@ def find_subtitle_companions(video_path: Path) -> list[Path]:
     for f in parent.iterdir():
         if f == video_path or not f.is_file():
             continue
-        # Check if the file starts with the video stem and has a subtitle extension
         fname = f.name
         if not fname.startswith(stem):
             continue
-        # The part after the stem should start with a dot (e.g. ".srt", ".en.srt")
         remainder = fname[len(stem):]
         if not remainder.startswith("."):
             continue
-        # Check that the final extension is a subtitle extension
         if f.suffix.lower() in SUBTITLE_EXTENSIONS:
             companions.append(f)
 
@@ -112,12 +112,7 @@ def subtitle_target_name(
     video_stem_old: str,
     video_stem_new: str,
 ) -> str:
-    """Compute the new subtitle filename by replacing the video stem portion.
-
-    Preserves language tags: if the subtitle was ``video.en.srt`` and the
-    new video stem is ``New Name - S01E01 - Pilot``, the result is
-    ``New Name - S01E01 - Pilot.en.srt``.
-    """
+    """Compute the new subtitle filename by replacing the video stem portion."""
     remainder = subtitle_path.name[len(video_stem_old):]
     return video_stem_new + remainder
 
@@ -138,10 +133,7 @@ def check_conflict(destination: Path) -> bool:
 
 
 def execute_action(action: RenameAction) -> RenameResult:
-    """Execute a single rename/move/copy/dryrun action.
-
-    Returns a :class:`RenameResult` with success status.
-    """
+    """Execute a single rename/move/copy/dryrun action."""
     src = Path(action.source)
     dst = Path(action.destination)
 
@@ -154,13 +146,11 @@ def execute_action(action: RenameAction) -> RenameResult:
         )
 
     try:
-        # Ensure the target directory exists
-        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
 
         if action.action == "copy":
             shutil.copy2(str(src), str(dst))
         else:
-            # "move" — use shutil.move which handles cross-filesystem moves
             shutil.move(str(src), str(dst))
 
         return RenameResult(
@@ -209,15 +199,11 @@ def write_undo_log(results: list[RenameResult]) -> Path | None:
 
 
 def undo_rename(log_path: Path) -> list[RenameResult]:
-    """Reverse a previous rename operation using its undo log.
-
-    Moves/copies files back to their original locations.
-    """
+    """Reverse a previous rename operation using its undo log."""
     data = json.loads(log_path.read_text())
     entry = UndoLogEntry.model_validate(data)
     results: list[RenameResult] = []
 
-    # Process in reverse order so subtitles are undone before videos
     for action in reversed(entry.actions):
         reverse_action = RenameAction(
             source=action.destination,
@@ -231,7 +217,7 @@ def undo_rename(log_path: Path) -> list[RenameResult]:
 
 
 # ---------------------------------------------------------------------------
-# Plan + execute: the main rename workflow
+# Plan: single file
 # ---------------------------------------------------------------------------
 
 
@@ -245,10 +231,7 @@ def plan_rename(
     episode: TVDBEpisode | None = None,
     movie: TVDBMovieDetails | None = None,
 ) -> list[RenameAction]:
-    """Plan rename actions for a video file and its subtitle companions.
-
-    Returns a list of :class:`RenameAction` objects (video + subtitles).
-    """
+    """Plan rename actions for a video file and its subtitle companions."""
     target_rel = build_target_path(
         parsed,
         series=series,
@@ -268,7 +251,6 @@ def plan_rename(
         )
     ]
 
-    # Plan subtitle companions
     new_video_stem = Path(target_rel).stem
     for sub_path in find_subtitle_companions(video_path):
         new_sub_name = subtitle_target_name(sub_path, video_path.stem, new_video_stem)
@@ -283,103 +265,3 @@ def plan_rename(
         )
 
     return actions
-
-
-def process_files(
-    input_path: Path,
-    config: AppConfig,
-    resolver: TVDBResolver,
-    *,
-    skip_existing: bool = False,
-) -> list[RenameResult]:
-    """Main rename workflow: scan, parse, resolve, plan, execute.
-
-    Parameters
-    ----------
-    input_path:
-        File or directory to process.
-    config:
-        Resolved application configuration.
-    resolver:
-        Callback that takes a ParsedFile and returns TVDB metadata
-        (or None to skip the file). This is where interactive
-        disambiguation happens (provided by the CLI layer).
-    skip_existing:
-        If True, silently skip files whose target already exists.
-        If False, log a warning and skip.
-    """
-    series_root = Path(config.general.series_root)
-    movies_root = Path(config.general.movies_root)
-    video_files = scan_video_files(input_path, recursive=config.general.recursive)
-
-    if not video_files:
-        logger.warning("No video files found in %s", input_path)
-        return []
-
-    all_results: list[RenameResult] = []
-
-    for video_path in video_files:
-        try:
-            parsed = parse_filename(video_path.name)
-            logger.debug("Parsed %s -> %s (%s)", video_path.name, parsed.title, parsed.media_type.value)
-
-            # Resolve TVDB metadata via the callback
-            resolution = resolver(parsed)
-            if resolution is None:
-                logger.info("Skipping %s (no TVDB match or user skipped)", video_path.name)
-                continue
-
-            result_type, metadata, ep = resolution
-
-            # Build kwargs for plan_rename
-            kwargs: dict[str, Any] = {}
-            if result_type == "series":
-                kwargs["series"] = metadata
-                kwargs["episode"] = ep
-                library_root = series_root
-            else:
-                kwargs["movie"] = metadata
-                library_root = movies_root
-
-            actions = plan_rename(
-                video_path, parsed, library_root, config, **kwargs
-            )
-
-            # Check for conflicts
-            skip_file = False
-            for action in actions:
-                if action.action != "dryrun" and check_conflict(Path(action.destination)):
-                    if skip_existing:
-                        logger.debug("Skipping (exists): %s", action.destination)
-                        skip_file = True
-                        break
-                    else:
-                        logger.warning(
-                            "Target already exists, skipping: %s", action.destination
-                        )
-                        skip_file = True
-                        break
-
-            if skip_file:
-                continue
-
-            # Execute all actions for this file
-            for action in actions:
-                result = execute_action(action)
-                all_results.append(result)
-                if result.success:
-                    verb = {"move": "Moved", "copy": "Copied", "dryrun": "Would rename"}[result.action]
-                    logger.info("%s: %s -> %s", verb, result.source, result.destination)
-                else:
-                    logger.error("FAILED: %s -> %s: %s", result.source, result.destination, result.error)
-
-        except click.exceptions.Exit:
-            raise
-        except Exception:
-            logger.exception("Error processing %s", video_path.name)
-            continue
-
-    # Write undo log
-    write_undo_log(all_results)
-
-    return all_results

@@ -30,22 +30,6 @@ TOKEN_PATH = CACHE_DIR / "tvdb_token.json"
 SEARCH_CACHE_PATH = CACHE_DIR / "search_cache.json"
 EPISODE_CACHE_PATH = CACHE_DIR / "episode_cache.json"
 
-# Map user-facing ordering names to TVDB season-type path parameters.
-ORDER_MAP: dict[str, str] = {
-    "aired": "default",
-    "dvd": "dvd",
-    "absolute": "absolute",
-}
-
-# Map TVDB API season-type names to user-facing ordering names.
-# "official" and "default" both refer to the standard aired order.
-SEASON_TYPE_MAP: dict[str, str] = {
-    "official": "aired",
-    "default": "aired",
-    "dvd": "dvd",
-    "absolute": "absolute",
-}
-
 
 class TVDBAuthError(Exception):
     """Raised when TVDB authentication fails."""
@@ -220,13 +204,10 @@ class TVDBClient:
         season_types: list[str] = []
         for st in data.get("seasonTypes", []):
             st_type = st.get("type")
-            if not st_type:
+            if not st_type or st_type in seen:
                 continue
-            # Normalize to user-facing name, skip unknown types
-            user_facing = SEASON_TYPE_MAP.get(st_type)
-            if user_facing and user_facing not in seen:
-                seen.add(user_facing)
-                season_types.append(user_facing)
+            seen.add(st_type)
+            season_types.append(st_type)
 
         return TVDBSeriesDetails(
             tvdb_id=series_id,
@@ -240,26 +221,25 @@ class TVDBClient:
     def get_episodes(
         self,
         series_id: int,
-        order: str = "aired",
+        season_type: str = "default",
     ) -> list[TVDBEpisode]:
-        """Fetch all episodes for a series with the given ordering.
+        """Fetch all episodes for a series.
 
         Parameters
         ----------
         series_id:
             TVDB series ID.
-        order:
-            One of ``"aired"``, ``"dvd"``, ``"absolute"``.  Mapped to the
-            TVDB season-type path parameter.
+        season_type:
+            TVDB season-type path parameter (e.g. ``"default"``, ``"dvd"``,
+            ``"absolute"``).  Defaults to ``"default"`` (standard aired order).
         """
         # Check cache first
-        cached = self._load_episode_cache(series_id, order)
+        cached = self._load_episode_cache(series_id, season_type)
         if cached is not None:
             logger.debug(
-                "Using cached episodes for series %d (%s)", series_id, order)
+                "Using cached episodes for series %d (%s)", series_id, season_type)
             return cached
 
-        season_type = ORDER_MAP.get(order, "default")
         episodes: list[TVDBEpisode] = []
         page = 0
 
@@ -289,7 +269,7 @@ class TVDBClient:
             else:
                 break
 
-        self._save_episode_cache(series_id, order, episodes)
+        self._save_episode_cache(series_id, season_type, episodes)
         return episodes
 
     # ------------------------------------------------------------------
@@ -351,17 +331,17 @@ class TVDBClient:
     # Caching — episodes
     # ------------------------------------------------------------------
 
-    def _episode_cache_key(self, series_id: int, order: str) -> str:
-        return f"{series_id}:{order}"
+    def _episode_cache_key(self, series_id: int, season_type: str) -> str:
+        return f"{series_id}:{season_type}"
 
-    def _load_episode_cache(self, series_id: int, order: str) -> list[TVDBEpisode] | None:
+    def _load_episode_cache(self, series_id: int, season_type: str) -> list[TVDBEpisode] | None:
         if not EPISODE_CACHE_PATH.exists():
             return None
         try:
             cache = json.loads(EPISODE_CACHE_PATH.read_text())
         except (json.JSONDecodeError, OSError):
             return None
-        key = self._episode_cache_key(series_id, order)
+        key = self._episode_cache_key(series_id, season_type)
         entry = cache.get(key)
         if not entry:
             return None
@@ -369,13 +349,13 @@ class TVDBClient:
             return None
         return [TVDBEpisode.model_validate(ep) for ep in entry.get("episodes", [])]
 
-    def _save_episode_cache(self, series_id: int, order: str, episodes: list[TVDBEpisode]) -> None:
+    def _save_episode_cache(self, series_id: int, season_type: str, episodes: list[TVDBEpisode]) -> None:
         try:
             cache = json.loads(EPISODE_CACHE_PATH.read_text()
                                ) if EPISODE_CACHE_PATH.exists() else {}
         except (json.JSONDecodeError, OSError):
             cache = {}
-        key = self._episode_cache_key(series_id, order)
+        key = self._episode_cache_key(series_id, season_type)
         cache[key] = {
             "episodes": [ep.model_dump() for ep in episodes],
             "cached_at": time.time(),

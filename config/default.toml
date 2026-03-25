@@ -7,7 +7,6 @@ verbose = false
 
 [tvdb]
 api_key = ""                # user must provide
-default_order = "aired"     # "aired", "dvd", "absolute"
 cache_ttl_days = 7
 language = "eng"
 
@@ -22,8 +21,3 @@ movie_folder_format = "{title} ({year})"
 movie_file_format = "{title} ({year})"
 replace_colon_with = " -"
 strip_characters = ["?", "*", "\"", "<", ">", "|"]
-
-[patterns]
-# Users use patterns_prepend / patterns_append in their config
-# to add patterns without overwriting defaults.
-# patterns_replace will replace ALL defaults if set.

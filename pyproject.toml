@@ -1,6 +1,6 @@
 [project]
 name = "jfvnamer"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Jellyfin-focused video file renamer — renames and organizes TV show and movie files into Jellyfin's expected directory structure."
 readme = "README.md"
 requires-python = ">=3.10"

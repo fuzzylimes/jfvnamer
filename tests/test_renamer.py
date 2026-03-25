@@ -9,7 +9,6 @@ import pytest
 
 from jfvnamer.models import (
     AppConfig,
-    MediaType,
     ParsedFile,
     RenameAction,
     RenameResult,
@@ -22,8 +21,8 @@ from jfvnamer.renamer import (
     check_conflict,
     execute_action,
     find_subtitle_companions,
+    group_files_by_title,
     plan_rename,
-    process_files,
     scan_video_files,
     subtitle_target_name,
     undo_rename,
@@ -51,7 +50,6 @@ def video_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def dryrun_config(tmp_path: Path) -> AppConfig:
-    """An AppConfig with action=dryrun and roots pointing to tmp_path/output."""
     output = tmp_path / "output"
     output.mkdir()
     return AppConfig.model_validate({
@@ -81,7 +79,6 @@ def copy_config(tmp_path: Path) -> AppConfig:
 def sample_parsed() -> ParsedFile:
     return ParsedFile(
         title="Breaking Bad",
-        media_type=MediaType.TV,
         season_number=1,
         episode_numbers=[1],
         file_extension=".mkv",
@@ -112,8 +109,6 @@ def sample_episode() -> TVDBEpisode:
 def sample_movie_parsed() -> ParsedFile:
     return ParsedFile(
         title="Inception",
-        media_type=MediaType.MOVIE,
-        year=2010,
         file_extension=".mp4",
         original_filename="Inception (2010).mp4",
     )
@@ -164,6 +159,36 @@ class TestScanVideoFiles:
 
 
 # ---------------------------------------------------------------------------
+# group_files_by_title
+# ---------------------------------------------------------------------------
+
+
+class TestGroupFilesByTitle:
+    def test_groups_same_series(self, video_dir: Path) -> None:
+        files = scan_video_files(video_dir, recursive=False)
+        groups = group_files_by_title(files)
+        # Both Breaking Bad episodes should be in one group
+        assert "Breaking Bad" in groups
+        assert len(groups["Breaking Bad"]) == 2
+
+    def test_separates_different_titles(self, video_dir: Path) -> None:
+        files = scan_video_files(video_dir, recursive=True)
+        groups = group_files_by_title(files)
+        # Breaking Bad and Inception should be separate
+        titles = list(groups.keys())
+        assert "Breaking Bad" in titles
+        # Inception parsed without year has its own title
+        assert any("Inception" in t for t in titles)
+
+    def test_group_contains_path_and_parsed(self, video_dir: Path) -> None:
+        files = scan_video_files(video_dir, recursive=False)
+        groups = group_files_by_title(files)
+        for path, parsed in groups["Breaking Bad"]:
+            assert isinstance(path, Path)
+            assert parsed.title == "Breaking Bad"
+
+
+# ---------------------------------------------------------------------------
 # find_subtitle_companions
 # ---------------------------------------------------------------------------
 
@@ -183,8 +208,8 @@ class TestFindSubtitleCompanions:
 
     def test_no_false_positives(self, tmp_path: Path) -> None:
         (tmp_path / "Show.mkv").write_text("vid")
-        (tmp_path / "Show2.srt").write_text("sub")  # different stem
-        (tmp_path / "ShowExtra.srt").write_text("sub")  # starts with stem but no dot
+        (tmp_path / "Show2.srt").write_text("sub")
+        (tmp_path / "ShowExtra.srt").write_text("sub")
         subs = find_subtitle_companions(tmp_path / "Show.mkv")
         assert subs == []
 
@@ -252,7 +277,7 @@ class TestExecuteAction:
         result = execute_action(action)
         assert result.success
         assert result.action == "dryrun"
-        assert src.exists()  # source untouched
+        assert src.exists()
         assert not (tmp_path / "output" / "video.mkv").exists()
 
     def test_move(self, tmp_path: Path) -> None:
@@ -273,7 +298,7 @@ class TestExecuteAction:
         action = RenameAction(source=str(src), destination=str(dst), action="copy")
         result = execute_action(action)
         assert result.success
-        assert src.exists()  # source still there
+        assert src.exists()
         assert dst.exists()
         assert dst.read_text() == "data"
 
@@ -365,7 +390,6 @@ class TestPlanRename:
             series=sample_series,
             episode=sample_episode,
         )
-        # video + 2 subtitle files (.srt and .en.srt)
         assert len(actions) == 3
         sub_actions = [a for a in actions if a.is_subtitle]
         assert len(sub_actions) == 2
@@ -412,7 +436,6 @@ class TestUndoLog:
         assert write_undo_log(results) is None
 
     def test_undo_reverses_move(self, tmp_path: Path) -> None:
-        # Set up: file at "destination"
         dst = tmp_path / "dst" / "video.mkv"
         dst.parent.mkdir(parents=True)
         dst.write_text("video data")
@@ -441,74 +464,35 @@ class TestUndoLog:
 
 
 # ---------------------------------------------------------------------------
-# process_files (integration-style test with dryrun)
+# move actually moves (integration)
 # ---------------------------------------------------------------------------
 
 
-class TestProcessFiles:
-    def test_dryrun_produces_results(self, video_dir: Path, dryrun_config: AppConfig) -> None:
-        def resolver(parsed: ParsedFile):
-            if parsed.media_type == MediaType.TV:
-                series = TVDBSeriesDetails(tvdb_id=1, name=parsed.title, year="2008")
-                episode = TVDBEpisode(
-                    tvdb_id=1,
-                    name="Pilot",
-                    season_number=parsed.season_number or 1,
-                    episode_number=(parsed.episode_numbers or [1])[0],
-                )
-                return ("series", series, episode)
-            elif parsed.media_type == MediaType.MOVIE:
-                movie = TVDBMovieDetails(
-                    tvdb_id=1, name=parsed.title, year=str(parsed.year) if parsed.year else None
-                )
-                return ("movie", movie, None)
-            return None
-
-        results = process_files(video_dir, dryrun_config, resolver)
-        # Should have results for all 3 video files (+ 2 subs for S01E01)
-        assert len(results) > 0
-        assert all(r.action == "dryrun" for r in results)
-        assert all(r.success for r in results)
-
-    def test_skip_existing(self, tmp_path: Path, copy_config: AppConfig) -> None:
-        video = tmp_path / "Breaking Bad - S01E01 - Pilot.mkv"
-        video.write_text("data")
-
-        # Pre-create the target so there's a conflict
-        output = Path(copy_config.general.series_root)
-        target = output / "Breaking Bad (2008)" / "Season 01" / "Breaking Bad - S01E01 - Pilot.mkv"
-        target.parent.mkdir(parents=True)
-        target.write_text("existing")
-
-        def resolver(parsed: ParsedFile):
-            series = TVDBSeriesDetails(tvdb_id=1, name="Breaking Bad", year="2008")
-            episode = TVDBEpisode(tvdb_id=1, name="Pilot", season_number=1, episode_number=1)
-            return ("series", series, episode)
-
-        results = process_files(tmp_path, copy_config, resolver, skip_existing=True)
-        assert len(results) == 0  # skipped due to conflict
-        assert target.read_text() == "existing"  # untouched
-
-    def test_resolver_skip(self, video_dir: Path, dryrun_config: AppConfig) -> None:
-        """Resolver returning None means skip the file."""
-        results = process_files(video_dir, dryrun_config, lambda _: None)
-        assert len(results) == 0
-
+class TestMoveIntegration:
     def test_move_actually_moves(self, tmp_path: Path, move_config: AppConfig, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Suppress undo log to a temp location
         monkeypatch.setattr("jfvnamer.renamer.UNDO_DIR", tmp_path / "undo")
 
         video = tmp_path / "Inception (2010).mp4"
         video.write_text("movie data")
 
-        def resolver(parsed: ParsedFile):
-            movie = TVDBMovieDetails(tvdb_id=1, name="Inception", year="2010")
-            return ("movie", movie, None)
+        movie = TVDBMovieDetails(tvdb_id=1, name="Inception", year="2010")
+        parsed = ParsedFile(
+            title="Inception",
+            file_extension=".mp4",
+            original_filename="Inception (2010).mp4",
+        )
 
-        results = process_files(tmp_path, move_config, resolver)
-        assert len(results) == 1
-        assert results[0].success
-        assert not video.exists()  # moved away
+        actions = plan_rename(
+            video,
+            parsed,
+            Path(move_config.general.movies_root),
+            move_config,
+            movie=movie,
+        )
+        assert len(actions) == 1
+        result = execute_action(actions[0])
+        assert result.success
+        assert not video.exists()
 
         output = Path(move_config.general.movies_root)
         target = output / "Inception (2010)" / "Inception (2010).mp4"

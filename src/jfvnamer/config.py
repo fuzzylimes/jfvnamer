@@ -44,7 +44,7 @@ def _load_toml(path: Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Deep merge with list-directive support
+# Deep merge
 # ---------------------------------------------------------------------------
 
 
@@ -53,8 +53,6 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
     Scalar values in *override* replace those in *base*.
     Nested dicts are merged recursively.
-    List-merge directives in the ``[patterns]`` section are handled by
-    :func:`_merge_patterns`.
     """
     merged = dict(base)
     for key, value in override.items():
@@ -63,26 +61,6 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         else:
             merged[key] = value
     return merged
-
-
-def _merge_patterns(
-    default_patterns: list[str],
-    patterns_section: dict[str, Any],
-) -> list[str]:
-    """Apply list-merge directives to the default pattern list.
-
-    Supported directives (inside the ``[patterns]`` TOML section):
-    - ``patterns_replace``: wholesale replace the entire list
-    - ``patterns_prepend``: prepend entries before the defaults
-    - ``patterns_append``: append entries after the defaults
-    """
-    if "patterns_replace" in patterns_section and patterns_section["patterns_replace"] is not None:
-        return list(patterns_section["patterns_replace"])
-
-    result = list(default_patterns)
-    prepend = patterns_section.get("patterns_prepend", [])
-    append = patterns_section.get("patterns_append", [])
-    return list(prepend) + result + list(append)
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +126,6 @@ def generate_user_config_template() -> str:
 
 [tvdb]
 api_key = ""                  # Required — get yours at https://thetvdb.com/api-information
-# default_order = "aired"     # "aired", "dvd", "absolute"
 # cache_ttl_days = 7
 # language = "eng"
 
@@ -163,12 +140,6 @@ api_key = ""                  # Required — get yours at https://thetvdb.com/ap
 # movie_file_format = "{title} ({year})"
 # replace_colon_with = " -"
 # strip_characters = ["?", "*", "\\"", "<", ">", "|"]
-
-[patterns]
-# Add custom filename patterns without replacing the built-in ones.
-# patterns_prepend = []       # Checked before built-in patterns
-# patterns_append = []        # Checked after built-in patterns
-# patterns_replace = []       # Replaces ALL built-in patterns (use with care)
 """
 
 
