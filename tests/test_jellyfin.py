@@ -73,6 +73,13 @@ class TestSeriesFolder:
     def test_colon_in_name(self):
         assert build_series_folder_name("Star Trek: Discovery", year=2017) == "Star Trek - Discovery (2017)"
 
+    def test_year_already_in_name_not_duplicated(self):
+        """Series names that already contain the year should not have it appended again."""
+        assert build_series_folder_name("Nodame Cantabile (2007)", year="2007") == "Nodame Cantabile (2007)"
+
+    def test_year_already_in_name_integer(self):
+        assert build_series_folder_name("Show (2020)", year=2020) == "Show (2020)"
+
 
 class TestSeasonFolder:
     def test_standard(self):
@@ -226,6 +233,16 @@ class TestBuildTargetPathTV:
         series = TVDBSeriesDetails(tvdb_id=1, name="The Daily Show", year="1996")
         path = build_target_path(parsed, series=series)
         assert path == "The Daily Show (1996)/Season 2024/The Daily Show - 2024-03-15.mkv"
+
+    def test_year_in_series_name_not_duplicated_in_path(self):
+        """Regression: when TVDB returns a series name that already contains the
+        year (e.g. 'Some Show (2007)'), the folder path must not repeat it."""
+        parsed = _make_parsed("Some Show", season_number=0, episode_numbers=[1])
+        series = TVDBSeriesDetails(tvdb_id=1, name="Some Show (2007)", year="2007")
+        episode = TVDBEpisode(tvdb_id=100, name="Pilot", season_number=0, episode_number=1)
+        path = build_target_path(parsed, series=series, episode=episode)
+        assert "(2007) (2007)" not in path
+        assert path == "Some Show (2007)/Season 00/Some Show (2007) - S00E01 - Pilot.mkv"
 
     def test_invalid_characters_sanitized(self):
         parsed = _make_parsed("Test", season_number=1, episode_numbers=[1])

@@ -72,9 +72,9 @@ def build_series_folder_name(
         replace_slash_with=cfg.replace_slash_with,
         strip_characters=cfg.strip_characters,
     )
-    if year:
+    if year and f"({year})" not in clean:
         return cfg.series_format.format(series_name=clean, year=year)
-    # No year — strip the parenthetical from the format
+    # No year, or year already present in the name — return as-is
     return clean
 
 

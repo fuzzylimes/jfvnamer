@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import typer
@@ -20,6 +21,17 @@ from jfvnamer.renamer import check_conflict, execute_action, plan_rename
 from jfvnamer.tvdb import TVDBClient
 
 logger = logging.getLogger(__name__)
+
+_SEASON_DIR_RE = re.compile(r'^(?:season|s)\s*0*(\d+)$', re.IGNORECASE)
+
+
+def detect_season_from_path(path: Path) -> int | None:
+    """Return the season number implied by the parent directory name, or None.
+
+    Recognises patterns like ``Season 01``, ``Season 1``, ``S01``, ``S2``.
+    """
+    m = _SEASON_DIR_RE.match(path.parent.name)
+    return int(m.group(1)) if m else None
 
 
 def run_group_interactive(
@@ -84,7 +96,10 @@ def run_group_interactive(
 
         all_actions = []
         for video_path, parsed in group:
-            ep = match_episode(parsed, episodes, forced_season=forced_season)
+            effective_season = forced_season
+            if effective_season is None:
+                effective_season = detect_season_from_path(video_path)
+            ep = match_episode(parsed, episodes, forced_season=effective_season)
             all_actions.extend(plan_rename(
                 video_path, parsed, series_root, config,
                 series=series, episode=ep,
