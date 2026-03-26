@@ -305,7 +305,7 @@ _add_tv(
     \[
     [sS][ ]?(?P<seasonnumber>\d+)
     (?:[ ]|[ ]-[ ]|-)
-    (?:[eE]|[eE]p)[ ]?(?P<episodenumber>\d+)
+    [eE](?:[Pp][Ss]?)?[ ]?(?P<episodenumber>\d+)
     \]
     .*$
     """,
@@ -359,14 +359,14 @@ _add_tv(
     """,
 )
 
-# show.name.e123
+# show.name.e123 / show.name.ep123 / show.name.eps123 (with optional trailing content)
 _add_tv(
     "bare_e",
     r"""
     ^(?P<seriesname>.+?)
     [ ._\-]
-    [Ee](?P<episodenumber>[0-9]+)
-    [._ \-][^/]*$
+    [Ee](?:[Pp][Ss]?)?[ ._\-]?(?P<episodenumber>[0-9]+)
+    (?:[._ \-][^/]*)?$
     """,
 )
 

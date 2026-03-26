@@ -127,6 +127,52 @@ class TestBareSE:
 
 
 # ---------------------------------------------------------------------------
+# ep / eps episode prefix
+# ---------------------------------------------------------------------------
+
+class TestEpEpsPrefix:
+    def test_eps_no_separator(self):
+        r = parse_filename("Show.Name.eps01.mkv")
+        assert r.title == "Show Name"
+        assert r.episode_numbers == [1]
+
+    def test_ep_no_separator(self):
+        r = parse_filename("Show.Name.ep01.mkv")
+        assert r.title == "Show Name"
+        assert r.episode_numbers == [1]
+
+    def test_bare_e_end_of_filename(self):
+        r = parse_filename("Show.Name.e01.mkv")
+        assert r.title == "Show Name"
+        assert r.episode_numbers == [1]
+
+    def test_eps_space_separated(self):
+        r = parse_filename("Show Name eps01.mkv")
+        assert r.title == "Show Name"
+        assert r.episode_numbers == [1]
+
+    def test_eps_uppercase(self):
+        r = parse_filename("Show.Name.EPS12.mkv")
+        assert r.title == "Show Name"
+        assert r.episode_numbers == [12]
+
+    def test_ep_uppercase(self):
+        r = parse_filename("Show.Name.EP12.mkv")
+        assert r.title == "Show Name"
+        assert r.episode_numbers == [12]
+
+    def test_eps_dot_separator(self):
+        r = parse_filename("Show.Name.eps.01.mkv")
+        assert r.title == "Show Name"
+        assert r.episode_numbers == [1]
+
+    def test_e_with_trailing_tags(self):
+        r = parse_filename("Show.Name.e01.720p.mkv")
+        assert r.title == "Show Name"
+        assert r.episode_numbers == [1]
+
+
+# ---------------------------------------------------------------------------
 # File extension handling
 # ---------------------------------------------------------------------------
 
