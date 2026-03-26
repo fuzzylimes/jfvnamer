@@ -408,7 +408,7 @@ _add_tv(
     ^(?P<seriesname>.+?)
     [ ._\-]+
     (?!(?:19|20)\d{2}(?:[._ \-]|$))   # reject year-like 4-digit numbers
-    (?P<episodenumber>[0-9]{2,4})
+    (?P<episodenumber>[0-9]{1,4})
     (?:[._ \-]|$)
     [^/]*$
     """,
