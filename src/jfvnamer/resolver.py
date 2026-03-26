@@ -275,6 +275,9 @@ def match_episode(
 
     if ep_nums and season_num is None:
         for ep in episodes:
+            if ep.absolute_number is not None and ep.absolute_number == ep_nums[0]:
+                return ep
+        for ep in episodes:
             if ep.episode_number == ep_nums[0]:
                 return ep
 

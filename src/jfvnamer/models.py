@@ -104,6 +104,7 @@ class TVDBEpisode(BaseModel):
     name: Optional[str] = None
     season_number: int
     episode_number: int
+    absolute_number: Optional[int] = None
     aired: Optional[str] = None
     overview: Optional[str] = None
 

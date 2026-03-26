@@ -287,6 +287,7 @@ class TVDBClient:
                         name=ep.get("name"),
                         season_number=ep.get("seasonNumber", 0),
                         episode_number=ep.get("number", 0),
+                        absolute_number=ep.get("absoluteNumber"),
                         aired=ep.get("aired"),
                         overview=ep.get("overview"),
                     )

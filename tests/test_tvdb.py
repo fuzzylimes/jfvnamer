@@ -223,6 +223,26 @@ class TestSeries:
         assert episodes[0].episode_number == 1
         assert episodes[1].episode_number == 2
 
+    def test_get_episodes_stores_absolute_number(self, client):
+        api_data = {
+            "data": {
+                "episodes": [
+                    {"id": 1, "name": "Ep1", "seasonNumber": 1, "number": 1, "absoluteNumber": 1},
+                    {"id": 2, "name": "Ep27", "seasonNumber": 2, "number": 1, "absoluteNumber": 27},
+                    {"id": 3, "name": "NoAbsolute", "seasonNumber": 1, "number": 2},
+                ]
+            },
+            "links": {"next": None},
+        }
+        mock_resp = _mock_response(200, api_data)
+        with patch.object(client._http, "get", return_value=mock_resp):
+            episodes = client.get_episodes(81618)
+
+        assert episodes[0].absolute_number == 1
+        assert episodes[1].absolute_number == 27
+        assert episodes[1].season_number == 2
+        assert episodes[2].absolute_number is None
+
     def test_get_episodes_paginated(self, client):
         page0 = {
             "data": {
