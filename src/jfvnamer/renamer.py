@@ -147,26 +147,12 @@ def execute_action(action: RenameAction) -> RenameResult:
         )
 
     try:
-        # Track which dirs don't exist yet so we can chmod them after creation.
-        # mkdir's mode arg is umask-filtered, so os.chmod is needed for exact perms.
-        dirs_to_create: list[Path] = []
-        p = dst.parent
-        while not p.exists():
-            dirs_to_create.append(p)
-            p = p.parent
-
-        dst.parent.mkdir(parents=True, exist_ok=True)
-
-        # rwxrwsr-x (0o2775): group-writable + setgid so new files inherit the group
-        for d in reversed(dirs_to_create):
-            os.chmod(d, 0o2775)
+        dst.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
 
         if action.action == "copy":
             shutil.copy2(str(src), str(dst))
         else:
             shutil.move(str(src), str(dst))
-
-        os.chmod(dst, 0o664)  # rw-rw-r--
 
         return RenameResult(
             source=action.source,
@@ -273,7 +259,8 @@ def plan_rename(
 
     new_video_stem = Path(target_rel).stem
     for sub_path in find_subtitle_companions(video_path):
-        new_sub_name = subtitle_target_name(sub_path, video_path.stem, new_video_stem)
+        new_sub_name = subtitle_target_name(
+            sub_path, video_path.stem, new_video_stem)
         sub_target = target_abs.parent / new_sub_name
         actions.append(
             RenameAction(
