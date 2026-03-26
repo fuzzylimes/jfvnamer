@@ -34,15 +34,18 @@ def sanitize_name(
     name: str,
     *,
     replace_colon_with: str = " -",
+    replace_slash_with: str = "-",
     strip_characters: frozenset[str] | list[str] = _DEFAULT_STRIP,
 ) -> str:
     """Remove or replace characters that are invalid on common filesystems.
 
     - Colons are replaced with *replace_colon_with* (default ``" -"``).
+    - Slashes are replaced with *replace_slash_with* (default ``"-"``).
     - Characters in *strip_characters* are removed entirely.
     - Trailing dots and spaces are stripped (Windows compatibility).
     """
     name = name.replace(":", replace_colon_with)
+    name = name.replace("/", replace_slash_with)
     for ch in strip_characters:
         if ch == ":":
             continue  # already handled
@@ -66,6 +69,7 @@ def build_series_folder_name(
     clean = sanitize_name(
         series_name,
         replace_colon_with=cfg.replace_colon_with,
+        replace_slash_with=cfg.replace_slash_with,
         strip_characters=cfg.strip_characters,
     )
     if year:
@@ -106,6 +110,7 @@ def build_episode_filename(
     clean = sanitize_name(
         series_name,
         replace_colon_with=cfg.replace_colon_with,
+        replace_slash_with=cfg.replace_slash_with,
         strip_characters=cfg.strip_characters,
     )
 
@@ -168,6 +173,7 @@ def build_date_episode_filename(
     clean = sanitize_name(
         series_name,
         replace_colon_with=cfg.replace_colon_with,
+        replace_slash_with=cfg.replace_slash_with,
         strip_characters=cfg.strip_characters,
     )
     filename = cfg.date_episode_fallback.format(
@@ -192,6 +198,7 @@ def build_movie_folder_name(
     clean = sanitize_name(
         title,
         replace_colon_with=cfg.replace_colon_with,
+        replace_slash_with=cfg.replace_slash_with,
         strip_characters=cfg.strip_characters,
     )
     if year:
@@ -211,6 +218,7 @@ def build_movie_filename(
     clean = sanitize_name(
         title,
         replace_colon_with=cfg.replace_colon_with,
+        replace_slash_with=cfg.replace_slash_with,
         strip_characters=cfg.strip_characters,
     )
     if year:

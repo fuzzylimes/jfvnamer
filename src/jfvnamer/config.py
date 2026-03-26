@@ -147,6 +147,7 @@ api_key = ""                  # Required — get yours at https://thetvdb.com/ap
 # movie_folder_format = "{title} ({year})"
 # movie_file_format = "{title} ({year})"
 # replace_colon_with = " -"
+# replace_slash_with = "-"
 # strip_characters = ["?", "*", "\\"", "<", ">", "|"]
 """
 

@@ -42,6 +42,12 @@ class TestSanitizeName:
         assert sanitize_name("Name   ") == "Name"
         assert sanitize_name("Name. . .") == "Name"
 
+    def test_slash_replaced(self):
+        assert sanitize_name("Part 1/Part 2") == "Part 1-Part 2"
+
+    def test_custom_slash_replacement(self):
+        assert sanitize_name("A/B", replace_slash_with=" & ") == "A & B"
+
     def test_custom_colon_replacement(self):
         assert sanitize_name("A: B", replace_colon_with=" --") == "A -- B"
 

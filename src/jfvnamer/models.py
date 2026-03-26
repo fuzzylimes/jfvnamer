@@ -55,6 +55,7 @@ class NamingConfig(BaseModel):
     movie_folder_format: str = "{title} ({year})"
     movie_file_format: str = "{title} ({year})"
     replace_colon_with: str = " -"
+    replace_slash_with: str = "-"
     strip_characters: list[str] = Field(
         default_factory=lambda: ["?", "*", '"', "<", ">", "|"])
 
