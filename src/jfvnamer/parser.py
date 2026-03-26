@@ -85,6 +85,9 @@ def _preprocess_fansub(name: str) -> str:
         prev = s
         s = _TRAILING_FORMAT_RE.sub("", s)
 
+    # Step 7: Strip version markers (e.g. "3v2" -> "3", "12v3" -> "12")
+    s = re.sub(r"(\d+)v\d+(?=[._ \-]|$)", r"\1", s, flags=re.IGNORECASE)
+
     return s.strip("._- ")
 
 

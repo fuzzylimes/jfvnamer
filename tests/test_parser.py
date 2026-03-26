@@ -341,3 +341,28 @@ class TestPreprocessFansub:
         # [01] should NOT be stripped — it's an episode reference
         result = _preprocess_fansub("Show - [01]")
         assert "[01]" in result
+
+
+# ---------------------------------------------------------------------------
+# Version suffix stripping (e.g. "3v2" treated as episode 3)
+# ---------------------------------------------------------------------------
+
+class TestVersionSuffix:
+    def test_bare_absolute_v2(self):
+        r = parse_filename("Some_Show_-_3v2.mkv")
+        assert r.title == "Some Show"
+        assert r.episode_numbers == [3]
+
+    def test_bare_absolute_v3_end_of_name(self):
+        r = parse_filename("Naruto_-_123v3.mkv")
+        assert r.episode_numbers == [123]
+
+    def test_standard_se_with_version(self):
+        r = parse_filename("Show.S01E05v2.mkv")
+        assert r.season_number == 1
+        assert r.episode_numbers == [5]
+
+    def test_version_with_trailing_title(self):
+        r = parse_filename("Some_Show_-_3v2_-_Episode_Title.mkv")
+        assert r.episode_numbers == [3]
+        assert r.title == "Some Show"
